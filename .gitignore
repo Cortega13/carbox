@@ -11,5 +11,5 @@ pyproject.toml
 
 .venv/
 data/
-benchmarks_cosmicai/
-output/
+benchmarks/cosmicai/
+outputs/
