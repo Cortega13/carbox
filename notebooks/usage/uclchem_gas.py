@@ -16,9 +16,9 @@ config = SimulationConfig(
 )
 
 results = run_simulation(
-    network_file="data/rate22_final.rates",
+    network_file="data/uclchem_gas_phase_only.csv",
     config=config,
-    format_type=NetworkNames.umist,
+    format_type=NetworkNames.uclchem,
 )
 
 print("Simulation finished.")
@@ -26,18 +26,18 @@ print(
     f"Final abundances stored in: {config.output_dir}/{config.run_name}_abundances.csv"
 )
 
-
-"""Output
+"""Outputs
 ============================================================
 Carbox Chemical Kinetics Simulation
 ============================================================
-Network file: data/rate22_final.rates
+Network file: data/uclchem_gas_phase_only.csv
 Run name: carbox_run
 
 Validating configuration...
-Loading reaction network from data/rate22_final.rates...
-  Loaded 523 species
-  Loaded 8766 reactions
+Loading reaction network from data/uclchem_gas_phase_only.csv...
+✓ Detected 3 special photoreactions
+  Loaded 163 species
+  Loaded 2227 reactions
 
 Initializing abundances...
 Setting initial abundance for H2: 1.000e+00 (fractional)
@@ -50,11 +50,11 @@ Species     Abundance [cm^-3]   Fractional
 H2                  1.000e+04    9.997e-01
 O                   2.000e+00    1.999e-04
 C                   1.000e+00    9.997e-05
-e-                  1.000e-26    9.997e-31
-TiOH                1.000e-26    9.997e-31
-TiO2H               1.000e-26    9.997e-31
-TiO2                1.000e-26    9.997e-31
-TiO                 1.000e-26    9.997e-31
+SO2+                1.000e-26    9.997e-31
+SO2                 1.000e-26    9.997e-31
+SO+                 1.000e-26    9.997e-31
+SO                  1.000e-26    9.997e-31
+SISH+               1.000e-26    9.997e-31
 
 Initial elemental abundances:
   C: 1.000e+00 cm^-3
@@ -69,8 +69,8 @@ Solving ODE system with kvaerno5...
   Time range: 0.00e+00 - 1.00e+06 years
   Snapshots: 3
   Compiling solver (first call)...
-  Integration complete in 46.38 seconds
-  Steps: 786 (accepted: 775, rejected: 11)
+  Integration complete in 6.62 seconds
+  Steps: 232 (accepted: 232, rejected: 0)
 
 Saving results...
 Saved abundances to: output/carbox_run_abundances.csv
@@ -78,7 +78,7 @@ Saved metadata to: output/carbox_run_metadata.json
 Saved summary to: output/carbox_run_summary.txt
 
 ============================================================
-Simulation complete! Total time: 94.70 seconds
+Simulation complete! Total time: 15.65 seconds
 Output saved to: output/
 ============================================================
 Simulation finished.

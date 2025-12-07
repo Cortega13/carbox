@@ -11,7 +11,7 @@ from .config import SimulationConfig
 from .network import JNetwork, Network
 
 # Seconds per year
-SPY = 3600.0 * 24 * 365.0
+SPY = 3600.0 * 24 * 365.2422222
 
 
 def get_solver(solver_name: str):

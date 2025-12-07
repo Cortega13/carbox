@@ -369,7 +369,7 @@ class H2PhotoDissReaction(Reaction):
         self.h2_species_index = h2_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .reactions.uclchem_photoreactions import (
+        from .uclchem_photoreactions import (
             compute_column_density,
             h2_photo_diss_rate,
         )
@@ -424,7 +424,7 @@ class COPhotoDissReaction(Reaction):
         self.co_species_index = co_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .reactions.uclchem_photoreactions import (
+        from .uclchem_photoreactions import (
             co_photo_diss_rate,
             compute_column_density,
         )
@@ -487,7 +487,7 @@ class CIonizationReaction(Reaction):
         self.h2_species_index = h2_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .reactions.uclchem_photoreactions import (
+        from .uclchem_photoreactions import (
             c_ionization_rate,
             compute_column_density,
         )

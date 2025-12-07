@@ -170,6 +170,7 @@ class SimulationConfig:
 
     def validate(self):
         """Basic validation of parameter ranges."""
+        assert self.n_snapshots > 2, "n_snapshots must be 3 or greater"
         assert 1e2 <= self.number_density <= 1e8, "number_density out of physical range"
         assert 10 <= self.temperature <= 1e5, "temperature out of range"
         # assert 1e-18 <= self.cr_rate <= 1e-12, "cr_rate out of typical range"

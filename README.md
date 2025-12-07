@@ -1,6 +1,6 @@
 
 # Note
-This is a fork of the original repository primarily for testing features. 
+This is a fork of the original repository primarily for testing features.
 
 Full credit goes to GijsVermarien and the original repository listed [here](https://github.com/GijsVermarien/carbox.git).
 The whitepaper they published is also linked here: [Carbox: an end-to-end differentiable astrochemical simulation framework](https://arxiv.org/abs/2511.10558).
@@ -15,3 +15,10 @@ The main code lives in the `carbox` directory, benchmarks between uclchem and ca
 ## Usage
 In order to reproduce figure 1. from the whitepaper, ensure the uclchem submodule is present and install it with `pip`, install the `requirements.txt` for carbox and run `run_benchmark.sh` and `plot_publication_comparison.py`.
 Figure 2. can be reproduced by following the same steps but running `run_cr_sensitivity.sh` instead.
+
+
+
+## Exploring Speedups
+When using an i5-13600K cpu, solving a single parameter set using umist (523 species, 8766 reactions) for 100,000 years takes ~100 seconds.
+
+
