@@ -1,248 +1,14 @@
-from dataclasses import dataclass
+"""UCLCHEM-specific reactions."""
 
-import equinox as eqx
 import jax.numpy as jnp
-import numpy as np
+from jax import Array
 
-REACTION_SKIP_LIST = ["CRPHOT", "CRP", "PHOTON"]
-
-
-class JReactionRateTerm(eqx.Module):
-    """
-    Base class for JAX-compatible reaction rate terms.
-
-    All subclasses must implement __call__ with signature:
-        __call__(self, temperature, cr_rate, uv_field, visual_extinction, abundance_vector)
-
-    This ensures consistent signatures for JIT compilation.
-    Reactions that don't need abundance_vector can simply ignore it.
-    """
-
-    pass
-
-
-# Concept:
-# The reaction network consists of abstract Species and Reactions, which are subclassed to reflect
-# different reactions. They are objects that interact nicely at the user level.
-# Each of these reactions needs to produce some ReactionRateTerm that takes: (T, density, ...) with its
-# own secret bits implemented as pytree variables + a function transform. These reactions can then be combined
-# by into a ChemicalNetwork that has a immutable copy of both the reaction network (objects) and the terms (pytree).
-
-
-def valid_species_check(species):
-    """
-    Check if the species are valid, i.e., not in the skip list.
-    """
-    valid = False
-    if isinstance(species, float):
-        valid = ~np.isnan(species)
-    elif isinstance(species, str):
-        valid = species not in REACTION_SKIP_LIST
-    return valid
-
-
-@dataclass
-class Reaction:
-    reaction_type: str
-    reactants: list[str]
-    products: list[str]
-    molecularity: int
-
-    def __init__(self, reaction_type, reactants, products):
-        self.reactants = [r for r in reactants if valid_species_check(r)]
-        self.products = [p for p in products if valid_species_check(p)]
-        self.reaction_type = reaction_type
-        self.molecularity = np.array(self.reactants).shape[-1]
-
-    def __str__(self):
-        return f"{self.reactants} -> {self.products}"
-
-    def __repr__(self):
-        return f"Reaction({self.reaction_type}, {self.reactants}, {self.products})\n"
-
-    def _reaction_rate_factory() -> JReactionRateTerm:
-        # Abstract function to implement in subclasses
-        raise NotImplementedError
-
-    def __call__(self):
-        return self._reaction_rate_factory()
-
-
-# Universal reactions:
-
-
-class KAReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
-        super().__init__(reaction_type, reactants, products)
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-
-    def _reaction_rate_factory(self) -> JReactionRateTerm:
-        class KAReactionRateTerm(JReactionRateTerm):
-            alpha: float
-            beta: float
-            gamma: float
-
-            def __call__(
-                self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                # α(T/300K​)^βexp(−γ/T)
-                return (
-                    self.alpha
-                    * jnp.power(0.0033333333333333335 * temperature, self.beta)
-                    * jnp.exp(-self.gamma / temperature)
-                )
-
-        return KAReactionRateTerm(
-            jnp.array(self.alpha), jnp.array(self.beta), jnp.array(self.gamma)
-        )
-
-
-class KAFixedReaction(Reaction):
-    def __init__(
-        self, reaction_type, reactants, products, alpha, beta, gamma, temperature
-    ):
-        super().__init__(reaction_type, reactants, products)
-        self.reaction_coeff = (
-            alpha
-            * jnp.power(0.0033333333333333335 * temperature, beta)
-            * jnp.exp(-gamma / temperature)
-        )
-
-    def _reaction_rate_factory(self) -> JReactionRateTerm:
-        class KAFixedReactionRateTerm(JReactionRateTerm):
-            reaction_coeff: float
-
-            def __call__(
-                self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                return self.reaction_coeff
-
-        return KAFixedReactionRateTerm(jnp.array(self.reaction_coeff))
-
-
-class CRPReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha):
-        super().__init__(reaction_type, reactants, products)
-        self.alpha = alpha
-
-    def _reaction_rate_factory(self) -> JReactionRateTerm:
-        class CRPReactionRateTerm(JReactionRateTerm):
-            alpha: float
-
-            def __call__(
-                self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                return cr_rate * self.alpha
-
-        return CRPReactionRateTerm(jnp.array(self.alpha))
-
-
-class CRPhotoReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
-        super().__init__(reaction_type, reactants, products)
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-
-    def _reaction_rate_factory(self) -> JReactionRateTerm:
-        class CRPReactionRateTerm(JReactionRateTerm):
-            alpha: float
-            beta: float
-            gamma: float
-
-            def __call__(
-                self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                return (
-                    1.31e-17
-                    * cr_rate
-                    * jnp.power(0.0033333333333333335 * temperature, self.beta)
-                    * self.gamma
-                    / (1 - 0.5)  # hardcoded omega value
-                )
-
-        return CRPReactionRateTerm(
-            jnp.array(self.alpha),
-            jnp.array(self.beta),
-            jnp.array(self.gamma),
-        )
-
-
-# Latent_tgas / prizmo specific reactions:
-
-
-class FUVReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha):
-        super().__init__(reaction_type, reactants, products)
-        self.alpha = alpha
-
-    def _reaction_rate_factory(self) -> JReactionRateTerm:
-        class FUVReactionRateTerm(JReactionRateTerm):
-            alpha: float
-
-            def __call__(
-                self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                return self.alpha * uv_field
-
-        return FUVReactionRateTerm(jnp.array(self.alpha))
-
-
-class H2FormReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, gas2dust):
-        super().__init__(reaction_type, reactants, products)
-        self.alpha = alpha
-        self.gas2dust = gas2dust
-
-    def _reaction_rate_factory(self) -> JReactionRateTerm:
-        class H2ReactionRateTerm(JReactionRateTerm):
-            alpha: float
-            gas2dust: float
-
-            def __call__(
-                self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                return 100.0 * self.gas2dust * self.alpha
-
-        return H2ReactionRateTerm(jnp.array(self.alpha), jnp.array(self.gas2dust))
+from . import JReactionRateTerm, Reaction
 
 
 # UCLCHEM reactions:
 class UCLCHEMH2FormReaction(Reaction):
-    """
-    H2 formation on grains using UCLCHEM's Cazaux & Tielens (2002, 2004) treatment.
+    """H2 formation on grains using UCLCHEM's Cazaux & Tielens (2002, 2004) treatment.
 
     Implements the h2FormEfficiency function from UCLCHEM's surfacereactions.f90.
     This accounts for:
@@ -263,8 +29,7 @@ class UCLCHEMH2FormReaction(Reaction):
         alpha=1.0,
         **kwargs,
     ):
-        """
-        Initialize H2 formation reaction.
+        """Initialize H2 formation reaction.
 
         Args:
             reaction_type: Type identifier for the reaction
@@ -302,27 +67,27 @@ class UCLCHEMH2FormReaction(Reaction):
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class UCLCHEMH2FormRateTerm(JReactionRateTerm):
             # Silicate parameters
-            silicate_mu: float
-            silicate_e_s: float
-            silicate_e_h2: float
-            silicate_e_hp: float
-            silicate_e_hc: float
-            silicate_nu_h2: float
-            silicate_nu_hc: float
-            silicate_cross_section: float
+            silicate_mu: Array
+            silicate_e_s: Array
+            silicate_e_h2: Array
+            silicate_e_hp: Array
+            silicate_e_hc: Array
+            silicate_nu_h2: Array
+            silicate_nu_hc: Array
+            silicate_cross_section: Array
 
             # Graphite parameters
-            graphite_mu: float
-            graphite_e_s: float
-            graphite_e_h2: float
-            graphite_e_hp: float
-            graphite_e_hc: float
-            graphite_nu_h2: float
-            graphite_nu_hc: float
-            graphite_cross_section: float
+            graphite_mu: Array
+            graphite_e_s: Array
+            graphite_e_h2: Array
+            graphite_e_hp: Array
+            graphite_e_hc: Array
+            graphite_nu_h2: Array
+            graphite_nu_hc: Array
+            graphite_cross_section: Array
 
-            hflux: float
-            alpha: float
+            hflux: Array
+            alpha: Array
 
             def __call__(
                 self,
@@ -459,9 +224,9 @@ class UCLCHEMPhotonReaction(Reaction):
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class UCLCHEMPhotonRateTerm(JReactionRateTerm):
-            alpha: float
-            beta: float
-            gamma: float
+            alpha: Array
+            beta: Array
+            gamma: Array
 
             def __call__(
                 self,
@@ -483,40 +248,10 @@ class UCLCHEMPhotonReaction(Reaction):
         )
 
 
-# UMIST reactions:
-
-
-class UMISTPhotoReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
-        super().__init__(reaction_type, reactants, products)
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-
-    def _reaction_rate_factory(self) -> JReactionRateTerm:
-        class PHReactionRateTerm(JReactionRateTerm):
-            alpha: float
-            beta: float
-            gamma: float
-
-            def __call__(
-                self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                return self.alpha * jnp.exp(-self.gamma * visual_extinction * 4.65)
-
-        return PHReactionRateTerm(
-            jnp.array(self.alpha), jnp.array(self.beta), jnp.array(self.gamma)
-        )
-
-
 # UCLCHEM-specific reaction types
 class IonPol1Reaction(Reaction):
-    """UCLCHEM IONOPOL1: Ion-polar molecule reaction (KIDA formula 1)
+    """UCLCHEM IONOPOL1: Ion-polar molecule reaction (KIDA formula 1).
+
     k = α * β * (0.62 + 0.4767 * γ * sqrt(300/T))
     """
 
@@ -528,9 +263,9 @@ class IonPol1Reaction(Reaction):
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class IonPol1RateTerm(JReactionRateTerm):
-            alpha: float
-            beta: float
-            gamma: float
+            alpha: Array
+            beta: Array
+            gamma: Array
 
             def __call__(
                 self,
@@ -552,7 +287,8 @@ class IonPol1Reaction(Reaction):
 
 
 class IonPol2Reaction(Reaction):
-    """UCLCHEM IONOPOL2: Ion-polar molecule reaction (KIDA formula 2)
+    """UCLCHEM IONOPOL2: Ion-polar molecule reaction (KIDA formula 2).
+
     k = α * β * (1.0 + 0.0967 * γ * sqrt(300/T) + γ² * 300/(10.526 * T))
     """
 
@@ -564,9 +300,9 @@ class IonPol2Reaction(Reaction):
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class IonPol2RateTerm(JReactionRateTerm):
-            alpha: float
-            beta: float
-            gamma: float
+            alpha: Array
+            beta: Array
+            gamma: Array
 
             def __call__(
                 self,
@@ -586,11 +322,12 @@ class IonPol2Reaction(Reaction):
 
 
 class GARReaction(Reaction):
-    """UCLCHEM GAR: Grain-assisted recombination (Weingartner & Draine 2001)
+    """UCLCHEM GAR: Grain-assisted recombination (Weingartner & Draine 2001).
+
     Simplified implementation for gas-phase comparison
     """
 
-    def __init__(self, reaction_type, reactants, products):
+    def __init__(self, reaction_type, reactants, products, *args):
         super().__init__(reaction_type, reactants, products)
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
@@ -605,12 +342,12 @@ class GARReaction(Reaction):
             ):
                 return NotImplementedError
 
-        return NotImplementedError
+        return NotImplementedError  # type:ignore
 
 
 class H2PhotoDissReaction(Reaction):
-    """
-    H2 photodissociation with self-shielding and dust extinction.
+    """H2 photodissociation with self-shielding and dust extinction.
+
     Uses UCLCHEM's treatment from photoreactions module.
     Requires cloud geometry and H2 abundance from state vector.
     """
@@ -632,14 +369,14 @@ class H2PhotoDissReaction(Reaction):
         self.h2_species_index = h2_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .uclchem_photoreactions import (
+        from .reactions.uclchem_photoreactions import (
             compute_column_density,
             h2_photo_diss_rate,
         )
 
         class H2PhotoDissRateTerm(JReactionRateTerm):
-            cloud_radius_pc: float
-            turb_vel: float
+            cloud_radius_pc: Array
+            turb_vel: Array
             h2_species_index: int
 
             def __call__(
@@ -665,8 +402,8 @@ class H2PhotoDissReaction(Reaction):
 
 
 class COPhotoDissReaction(Reaction):
-    """
-    CO photodissociation with self-shielding from H2 and CO.
+    """CO photodissociation with self-shielding from H2 and CO.
+
     Requires both H2 and CO abundances from state vector.
     """
 
@@ -675,10 +412,10 @@ class COPhotoDissReaction(Reaction):
         reaction_type,
         reactants,
         products,
+        h2_species_index,
+        co_species_index,
         cloud_radius_pc=1.0,
         number_density=1e4,
-        h2_species_index=None,
-        co_species_index=None,
     ):
         super().__init__(reaction_type, reactants, products)
         self.cloud_radius_pc = cloud_radius_pc
@@ -687,13 +424,13 @@ class COPhotoDissReaction(Reaction):
         self.co_species_index = co_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .uclchem_photoreactions import (
+        from .reactions.uclchem_photoreactions import (
             co_photo_diss_rate,
             compute_column_density,
         )
 
         class COPhotoDissRateTerm(JReactionRateTerm):
-            cloud_radius_pc: float
+            cloud_radius_pc: Array
             h2_species_index: int
             co_species_index: int
 
@@ -723,8 +460,8 @@ class COPhotoDissReaction(Reaction):
 
 
 class CIonizationReaction(Reaction):
-    """
-    Carbon photoionization with dust extinction and gas-phase shielding.
+    """Carbon photoionization with dust extinction and gas-phase shielding.
+
     Requires C, H2 abundances from state vector.
     Uses UCLCHEM's treatment with dust and gas-phase shielding.
     """
@@ -734,12 +471,12 @@ class CIonizationReaction(Reaction):
         reaction_type,
         reactants,
         products,
+        c_species_index,
+        h2_species_index,
         alpha=3.5e-10,
         gamma=3.0,
         cloud_radius_pc=1.0,
         number_density=1e4,
-        c_species_index=None,
-        h2_species_index=None,
     ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
@@ -750,15 +487,15 @@ class CIonizationReaction(Reaction):
         self.h2_species_index = h2_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .uclchem_photoreactions import (
+        from .reactions.uclchem_photoreactions import (
             c_ionization_rate,
             compute_column_density,
         )
 
         class CIonizationRateTerm(JReactionRateTerm):
-            alpha: float
-            gamma: float
-            cloud_radius_pc: float
+            alpha: Array
+            gamma: Array
+            cloud_radius_pc: Array
             c_species_index: int
             h2_species_index: int
 

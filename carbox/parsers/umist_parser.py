@@ -1,25 +1,24 @@
-from typing import Dict, List, Optional
+"""Using the carbox parser for parsing umist network."""
 
 import numpy as np
 import pandas as pd
 
 from ..network import Network
-from ..reactions import CRPReaction, FUVReaction, KAReaction
+from ..reactions import CRPReaction, FUVReaction, KAReaction, Reaction
 from ..species import Species
 from .base_parser import BaseParser
 
 
 class UMISTParser(BaseParser):
-    """
-    Parser for UMIST reaction format - adapted from existing parser_umist.py
+    """Parser for UMIST reaction format - adapted from existing parser_umist.py.
 
     This is a legacy adapter to integrate the existing UMIST parser
     with the unified parser architecture.
     """
 
-    def __init__(self):
-        super().__init__()
-        self.format_type = "umist"
+    def __init__(self):  # noqa
+        format_type = "umist"
+        super().__init__(format_type)
 
         # UMIST reaction type mapping
         self.reaction_type_mapping = {
@@ -41,7 +40,7 @@ class UMISTParser(BaseParser):
         }
 
     def parse_network(self, filepath: str) -> Network:
-        """Parse UMIST reactions file and return Network"""
+        """Parse UMIST reactions file and return Network."""
         # Read colon-separated file
         reactions_data = []
 
@@ -93,8 +92,8 @@ class UMISTParser(BaseParser):
         # Create network
         return Network(species, reactions, use_sparse=True, vectorize_reactions=True)
 
-    def parse_reaction(self, row) -> Optional[KAReaction]:
-        """Parse a single UMIST reaction row"""
+    def parse_reaction(self, row) -> Reaction | None:
+        """Parse a single UMIST reaction row."""
         try:
             # Parse reactants and products
             reactants = self._parse_species_list(
@@ -127,13 +126,14 @@ class UMISTParser(BaseParser):
             print(f"Warning: Failed to parse UMIST reaction: {e}")
             return None
 
-    def _parse_species_list(self, species_str: str) -> List[str]:
-        """Parse UMIST species list (space or + separated)"""
-        if isinstance(species_str, str) and (
-            not species_str or species_str.strip() == ""
+    def _parse_species_list(self, species_str: str) -> list[str]:
+        """Parse UMIST species list (space or + separated)."""
+        if (
+            isinstance(species_str, str)
+            and (not species_str or species_str.strip() == "")
+            or isinstance(species_str, float)
+            and np.isnan(species_str)
         ):
-            return []
-        elif isinstance(species_str, float) and np.isnan(species_str):
             return []
 
         # Handle both space and + separators

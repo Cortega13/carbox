@@ -1,15 +1,25 @@
-from typing import Dict, Type, Optional
+"""Unified carbox parser."""
+
+import os
+from enum import StrEnum
+
+from ..network import Network
 from .base_parser import BaseParser
+from .latent_tgas_parser import LatentTGASParser
 from .uclchem_parser import UCLCHEMParser
 from .umist_parser import UMISTParser
-from .latent_tgas_parser import LatentTGASParser
-from ..network import Network
-import os
+
+
+class NetworkNames(StrEnum):
+    """The networks which can be parsed by the unified chemical parser."""
+
+    umist = "umist"
+    uclchem = "uclchem"
+    latent_tgas = "latent_tgas"
 
 
 class UnifiedChemicalParser:
-    """
-    Unified interface for parsing different chemical reaction network formats.
+    """Unified interface for parsing different chemical reaction network formats.
 
     Supports:
     - UCLCHEM (CSV format with surface chemistry)
@@ -17,18 +27,17 @@ class UnifiedChemicalParser:
     - LATENT-TGAS (CSV format)
     """
 
-    def __init__(self):
-        self.parsers: Dict[str, Type[BaseParser]] = {
-            "uclchem": UCLCHEMParser,
-            "umist": UMISTParser,
-            "latent_tgas": LatentTGASParser,
+    def __init__(self):  # noqa
+        self.parsers: dict[NetworkNames, type[BaseParser]] = {
+            NetworkNames.umist: UMISTParser,
+            NetworkNames.uclchem: UCLCHEMParser,
+            NetworkNames.latent_tgas: LatentTGASParser,
         }
 
     def parse(
-        self, filepath: str, format_type: Optional[str] = None, **kwargs
+        self, filepath: str, format_type: NetworkNames | None = None, **kwargs
     ) -> Network:
-        """
-        Parse a chemical reaction network file using the appropriate parser.
+        """Parse a chemical reaction network file using the appropriate parser.
 
         Args:
             filepath: Path to the reaction file
@@ -48,56 +57,59 @@ class UnifiedChemicalParser:
             )
 
         parser_class = self.parsers[format_type]
-        parser = parser_class()
+        parser = parser_class(**kwargs)
 
-        return parser.parse_network(filepath, **kwargs)
+        return parser.parse_network(filepath)
 
-    def _detect_format(self, filepath: str) -> str:
-        """Auto-detect file format based on filename and structure"""
+    def _detect_format(self, filepath: str) -> NetworkNames:
+        """Auto-detect file format based on filename and structure."""
         filename = os.path.basename(filepath).lower()
 
         # Format detection heuristics
-        if "uclchem" in filename or filename.endswith(".rates"):
-            return "uclchem"
+        if "uclchem" in filename:
+            return NetworkNames.uclchem
         elif "umist" in filename:
-            return "umist"
+            return NetworkNames.umist
         elif "latent" in filename or "tgas" in filename:
-            return "latent_tgas"
+            return NetworkNames.latent_tgas
 
         # Fallback to file structure detection
         try:
-            with open(filepath, "r") as f:
+            with open(filepath) as f:
                 first_line = f.readline().strip()
 
                 # Check for UCLCHEM CSV headers
                 if "Reactant 1" in first_line and "Product 1" in first_line:
-                    return "uclchem"
+                    return NetworkNames.uclchem
 
                 # Check for UMIST colon-separated format
                 if first_line.count(":") > 5:
-                    return "umist"
+                    return NetworkNames.umist
 
                 # Default to LATENT-TGAS CSV
-                return "latent_tgas"
+                return NetworkNames.latent_tgas
 
-        except Exception:
-            raise ValueError(f"Could not auto-detect format for file: {filepath}")
+        except Exception as e:
+            raise ValueError(
+                f"Could not auto-detect format for file: {filepath}"
+            ) from e
 
-    def register_parser(self, format_type: str, parser_class: Type[BaseParser]):
-        """Register a new parser for a specific format"""
+    def register_parser(
+        self, format_type: NetworkNames, parser_class: type[BaseParser]
+    ):
+        """Register a new parser for a specific format."""
         self.parsers[format_type] = parser_class
 
     def list_supported_formats(self) -> list:
-        """List all supported reaction network formats"""
+        """List all supported reaction network formats."""
         return list(self.parsers.keys())
 
 
 # Convenience function for direct parsing
 def parse_chemical_network(
-    filepath: str, format_type: Optional[str] = None, **kwargs
+    filepath: str, format_type: NetworkNames | None = None, **kwargs
 ) -> Network:
-    """
-    Convenience function to parse a chemical reaction network file.
+    """Convenience function to parse a chemical reaction network file.
 
     Args:
         filepath: Path to the reaction file

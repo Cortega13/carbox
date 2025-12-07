@@ -1,0 +1,9 @@
+services:
+    app:
+        build:
+            context: ..
+            dockerfile: .devcontainer/Dockerfile
+        volumes:
+            - ..:/workspace/carbox:cached
+            - C:\Users\carlo\.gemini:/home/carbox/.gemini
+        command: sleep infinity

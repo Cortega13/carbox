@@ -1,0 +1,48 @@
+{
+	"name": "Carbox-Container",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "app",
+	"workspaceFolder": "/workspace/carbox",
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-azuretools.vscode-docker",
+				"kilocode.kilo-code",
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"charliermarsh.ruff",
+				"usernamehw.errorlens",
+				"KevinRose.vsc-python-indent",
+				"njpwerner.autodocstring",
+				"tamasfe.even-better-toml",
+				"oderwat.indent-rainbow",
+				"ms-toolsai.jupyter",
+				"ms-toolsai.vscode-jupyter-cell-tags",
+				"yzhang.markdown-all-in-one",
+				"mechatroner.rainbow-csv",
+				"Gruntfuggly.todo-tree"
+			],
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "bash",
+				"editor.formatOnSave": false,
+				"python.defaultInterpreterPath": "/workspace/carbox/.venv/bin/python",
+				"python.linting.enabled": true,
+				"python.linting.ruffEnabled": true,
+				"[python]": {
+					"editor.defaultFormatter": "charliermarsh.ruff",
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.fixAll": "explicit",
+						"source.organizeImports": "explicit"
+					}
+				}
+			}
+		}
+	},
+
+	"postCreateCommand": "python3 -m venv .venv --system-site-packages --prompt carbox && .venv/bin/pip install -r requirements.txt",
+
+	"remoteUser": "carbox"
+}
+

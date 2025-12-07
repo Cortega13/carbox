@@ -4,3 +4,12 @@ __pycache__
 .log
 .DS_Store
 plugins
+
+# IDE stuff
+.kilocode/
+pyproject.toml
+
+.venv/
+data/
+benchmarks_cosmicai/
+output/
