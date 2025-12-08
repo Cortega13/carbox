@@ -16,7 +16,7 @@ import pandas as pd
 import yaml
 
 # Add Carbox to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from carbox.config import SimulationConfig
 from carbox.main import run_simulation
@@ -33,12 +33,15 @@ def analyze_stiffness(network_name: str = "gas_phase_only"):
     print(f"Analyzing stiffness for network: {network_name}")
 
     # Define paths
-    base_dir = Path(__file__).parent.parent
+    base_dir = Path(__file__).parent.parent.parent
     data_dir = base_dir / "data"
 
     if network_name == "gas_phase_only":
         network_file = data_dir / "uclchem_gas_phase_only.csv"
-        ic_file = base_dir / "benchmarks/initial_conditions/gas_phase_only_initial.yaml"
+        ic_file = (
+            base_dir
+            / "benchmarks/gijs_whitepaper/initial_conditions/gas_phase_only_initial.yaml"
+        )
     else:
         raise ValueError(f"Unknown network: {network_name}")
 

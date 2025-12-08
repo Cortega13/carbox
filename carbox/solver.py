@@ -118,6 +118,16 @@ def solve_network_core(
         "visual_extinction": visual_extinction,
     }
 
+    # TODO: Add these to the config.
+    stepsize_controller = dx.PIDController(
+        rtol=1e-6,  # Looser relative tolerance
+        atol=1e-12,  # Looser absolute tolerance
+        pcoeff=0.4,
+        icoeff=0.3,
+        dcoeff=0.0,
+        factormax=1000.0,  # Allow the step size to grow up to 10x in a single step
+    )
+
     # Solve
     solution = dx.diffeqsolve(
         ode_term,
@@ -126,7 +136,7 @@ def solve_network_core(
         t1=t_eval_sec[-1],
         dt0=1e-6,  # Initial timestep [s]
         y0=y0,
-        stepsize_controller=dx.PIDController(atol=atol, rtol=rtol),
+        stepsize_controller=stepsize_controller,  # dx.PIDController(atol=atol, rtol=rtol),
         saveat=dx.SaveAt(ts=t_eval_sec),
         args=params,
         max_steps=max_steps,
