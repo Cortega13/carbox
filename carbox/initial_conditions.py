@@ -53,9 +53,9 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
     # Set specified abundances (convert fractional → absolute)
     species_names = [s.name for s in network.species]
     for species_name, fractional_abundance in config.initial_abundances.items():
-        print(
-            f"Setting initial abundance for {species_name}: {fractional_abundance:.3e} (fractional)"
-        )
+        # print(
+        #    f"Setting initial abundance for {species_name}: {fractional_abundance:.3e} (fractional)"
+        # )
         if species_name in species_names:
             idx = species_names.index(species_name)
             # Convert fractional abundance to absolute abundance

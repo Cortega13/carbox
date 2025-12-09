@@ -6,7 +6,7 @@ from carbox.parsers import NetworkNames
 
 config = SimulationConfig(
     number_density=1e4,
-    temperature=50.0,
+    temperature=100.0,
     t_end=1e6,
     solver="kvaerno5",
     max_steps=500000,

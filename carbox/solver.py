@@ -3,6 +3,8 @@
 Wraps Diffrax solvers with appropriate settings for stiff chemistry ODEs.
 """
 
+from functools import partial
+
 import diffrax as dx
 import jax
 import jax.numpy as jnp
@@ -47,6 +49,7 @@ def get_solver(solver_name: str):
     return solvers[solver_name.lower()]()
 
 
+@partial(jax.jit, static_argnames=["solver_name", "max_steps"])
 def solve_network_core(
     jnetwork: JNetwork,
     y0: jnp.ndarray,
