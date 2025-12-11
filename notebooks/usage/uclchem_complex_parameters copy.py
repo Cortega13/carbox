@@ -97,8 +97,8 @@ config = SimulationConfig(
     n_snapshots=3,  # snapshots per interval
     solver="kvaerno5",
     max_steps=500000,
-    atol=1e-13,
-    rtol=1e-7,
+    atol=1e-12,
+    rtol=1e-6,
     run_name="complex_parameters",
 )
 
@@ -176,66 +176,31 @@ if solution.ys is not None and len(solution.ys) > 0:
     assert solution.ts is not None
     assert solution.ys is not None
 
-    # Build stoichiometric matrix
-    elemental_matrix = build_stoichiometric_matrix(network.species, ELEMENTS)
-
-    # Calculate true initial abundances (before clipping)
-    true_initial_abundances = elemental_matrix @ solution.ys[0]
-
     # Clip abundances
     clipped_ys = np.array([np.maximum(y, 1e-20) for y in solution.ys])
 
-    # Calculate clipped abundances
+    # Build stoichiometric matrix
+    elemental_matrix = build_stoichiometric_matrix(network.species, ELEMENTS)
+
+    # Calculate elemental abundances
     initial_abundances = elemental_matrix @ clipped_ys[0]
     final_abundances = elemental_matrix @ clipped_ys[-1]
 
     # Calculate % differences for elements
     print()
     print("ELEMENTAL CONSERVATION:")
-    print(
-        f"{'Element':<10} {'True Init':>15} {'Init (clip)':>15} {'Final':>15} {'Δ%':>12}"
-    )
-    print("-" * 75)
-    problem_elements = []
+    print(f"{'Element':<10} {'Δ%':>12}")
+    print("-" * 25)
     for elem_idx, element in enumerate(ELEMENTS):
-        true_init = true_initial_abundances[elem_idx]
-        init_clipped = initial_abundances[elem_idx]
-        final = final_abundances[elem_idx]
-
-        # Use true initial for % calculation if it's non-zero
-        if abs(true_init) > 1e-30:
-            pct_change = (final - true_init) / true_init * 100
-        elif abs(init_clipped) > 1e-30:
-            pct_change = (final - init_clipped) / init_clipped * 100
-        else:
-            pct_change = 0.0
-
-        print(
-            f"{element:<10} {true_init:15.6e} {init_clipped:15.6e} {final:15.6e} {pct_change:+12.6f}%"
-        )
-
-        if abs(pct_change) > 1.0:
-            problem_elements.append((element, pct_change, elem_idx, true_init < 1e-30))
-    print("-" * 75)
+        if abs(initial_abundances[elem_idx]) > 1e-30:
+            pct_change = (
+                (final_abundances[elem_idx] - initial_abundances[elem_idx])
+                / initial_abundances[elem_idx]
+                * 100
+            )
+            print(f"{element:<10} {pct_change:+12.6f}%")
+    print("-" * 25)
     print()
-
-    # Show problem species for elements with >1% drift
-    if problem_elements:
-        print("PROBLEM SPECIES (elements with > 1% drift):")
-        print()
-        for element, pct_change, elem_idx, was_zero in problem_elements:
-            print(f"{element}: {pct_change:+.6f}%")
-            print(f"  {'Species':<15s} {'Init':>15s} {'Final':>15s}")
-            print("  " + "-" * 50)
-            for species_idx, species in enumerate(network.species):
-                elem_count = elemental_matrix[elem_idx, species_idx]
-                if elem_count > 0:
-                    init_abund = clipped_ys[0][species_idx]
-                    final_abund = clipped_ys[-1][species_idx]
-                    print(
-                        f"  {species.name:<15s} {init_abund:15.6e} {final_abund:15.6e}"
-                    )
-            print()
 
     # Calculate electron-ion balance
     electron_indices = [
