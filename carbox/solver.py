@@ -54,6 +54,8 @@ def solve_network_core(
     jnetwork: JNetwork,
     y0: jnp.ndarray,
     t_eval: jnp.ndarray,
+    time_grid: jnp.ndarray,
+    number_density: jnp.ndarray,
     temperature: jnp.ndarray,
     cr_rate: jnp.ndarray,
     fuv_field: jnp.ndarray,
@@ -62,6 +64,10 @@ def solve_network_core(
     atol: float = 1e-18,
     rtol: float = 1e-12,
     max_steps: int = 4096,
+    pcoeff: float = 0.4,
+    icoeff: float = 0.3,
+    dcoeff: float = 0.0,
+    factormax: float = 1000.0,
 ) -> dx.Solution:
     """Core ODE solver with raw JAX array parameters.
 
@@ -73,22 +79,34 @@ def solve_network_core(
         Initial abundance vector [cm^-3]
     t_eval : jnp.ndarray
         Time points for evaluation [years]
+    time_grid : jnp.ndarray
+        Time grid for parameter interpolation [years]
+    number_density : jnp.ndarray
+        Number density [cm^-3] (scalar or array for time-dependent)
     temperature : jnp.ndarray
-        Gas temperature [K]
+        Gas temperature [K] (scalar or array for time-dependent)
     cr_rate : jnp.ndarray
-        Cosmic ray ionization rate [s^-1]
+        Cosmic ray ionization rate [s^-1] (scalar or array for time-dependent)
     fuv_field : jnp.ndarray
-        FUV radiation field (Draine units)
+        FUV radiation field (Draine units) (scalar or array for time-dependent)
     visual_extinction : jnp.ndarray
-        Visual extinction Av [mag]
+        Visual extinction Av [mag] (scalar or array for time-dependent)
     solver_name : str
         Solver name ('dopri5', 'kvaerno5', 'tsit5')
     atol : float
-        Absolute tolerance
+        Absolute tolerance for solution accuracy
     rtol : float
-        Relative tolerance
+        Relative tolerance for solution accuracy
     max_steps : int
         Maximum integration steps
+    pcoeff : float
+        Proportional coefficient for PID step size controller
+    icoeff : float
+        Integral coefficient for PID step size controller
+    dcoeff : float
+        Derivative coefficient for PID step size controller
+    factormax : float
+        Maximum step size growth factor
 
     Returns:
     -------
@@ -97,38 +115,52 @@ def solve_network_core(
     """
     # Convert time to seconds
     t_eval_sec = t_eval * SPY
+    time_grid_sec = time_grid * SPY
 
-    # Define ODE term
+    # Helper function to interpolate or use scalar
+    def _get_param(t, param_array, time_grid_sec):
+        """Get parameter value at time t (interpolated or scalar)."""
+        if param_array.shape[0] == 1:
+            # Scalar case: no interpolation needed
+            return param_array[0]
+        else:
+            # Time-dependent case: linear interpolation
+            return jnp.interp(t, time_grid_sec, param_array)
+
+    # Define ODE term with parameter interpolation
     ode_term = dx.ODETerm(
         lambda t, y, args: jnetwork(
             t,
             y,
-            args["temperature"],
-            args["cr_rate"],
-            args["fuv_field"],
-            args["visual_extinction"],
+            _get_param(t, args["number_density"], args["time_grid"]),
+            _get_param(t, args["temperature"], args["time_grid"]),
+            _get_param(t, args["cr_rate"], args["time_grid"]),
+            _get_param(t, args["fuv_field"], args["time_grid"]),
+            _get_param(t, args["visual_extinction"], args["time_grid"]),
         )
     )
 
     # Get solver
     solver = get_solver(solver_name)
 
-    # Physical parameters
+    # Physical parameters (include time_grid for interpolation)
     params = {
+        "time_grid": time_grid_sec,
+        "number_density": number_density,
         "temperature": temperature,
         "cr_rate": cr_rate,
         "fuv_field": fuv_field,
         "visual_extinction": visual_extinction,
     }
 
-    # TODO: Add these to the config.
+    # Step size controller from config (uses atol/rtol from solver)
     stepsize_controller = dx.PIDController(
-        rtol=1e-6,  # Looser relative tolerance
-        atol=1e-12,  # Looser absolute tolerance
-        pcoeff=0.4,
-        icoeff=0.3,
-        dcoeff=0.0,
-        factormax=1000.0,  # Allow the step size to grow up to 10x in a single step
+        rtol=rtol,
+        atol=atol,
+        pcoeff=pcoeff,
+        icoeff=icoeff,
+        dcoeff=dcoeff,
+        factormax=factormax,
     )
 
     # Solve
@@ -174,36 +206,50 @@ def solve_network(
 
     Notes:
     -----
-    - Uses logarithmic time sampling for astrophysical timescales
+    - Uses linear time sampling per interval for time-dependent parameters
     - Physical parameters passed as args to ODE function
     - JIT compiled for performance (first call compiles)
     - Stiff solver (Kvaerno5) recommended for chemistry
     """
     # Get physical parameters as JAX arrays
     params = config.get_physical_params_jax()
+    time_grid = config.get_time_grid()
 
-    # Time sampling (log-spaced in years)
-    # Create log-spaced times with manual 0th timestep
-    if config.t_start <= 0:
-        # Start from very small value for log spacing (excluding t=0)
-        # This captures early chemistry evolution
-        t_start_log = -9  # 10^-9 years (~31.5 microseconds)
-        t_log = jnp.logspace(
-            t_start_log, jnp.log10(config.t_end), config.n_snapshots - 1
-        )
-        # Prepend t=0 as the 0th timestep
-        t_snapshots = jnp.concatenate([jnp.array([0.0]), t_log])
+    # Construct time evaluation points based on t_end structure
+    if isinstance(config.t_end, list):
+        # Multi-interval case: linear spacing within each interval
+        t_intervals = []
+        t_points = [config.t_start] + config.t_end
+
+        for i in range(len(t_points) - 1):
+            t_start_interval = t_points[i]
+            t_end_interval = t_points[i + 1]
+
+            # Linear spacing for this interval
+            if i == 0:
+                # First interval: include start point
+                t_interval = jnp.linspace(
+                    t_start_interval, t_end_interval, config.n_snapshots
+                )
+            else:
+                # Subsequent intervals: exclude start (already included from previous)
+                t_interval = jnp.linspace(
+                    t_start_interval, t_end_interval, config.n_snapshots + 1
+                )[1:]
+
+            t_intervals.append(t_interval)
+
+        t_snapshots = jnp.concatenate(t_intervals)
     else:
-        # If t_start > 0, still include it as the 0th timestep
-        t_log = jnp.logspace(
-            jnp.log10(config.t_start), jnp.log10(config.t_end), config.n_snapshots - 1
-        )
-        t_snapshots = jnp.concatenate([jnp.array([config.t_start]), t_log])
+        # Single interval case: use linear spacing (backward compatible)
+        t_snapshots = jnp.linspace(config.t_start, config.t_end, config.n_snapshots)
 
     return solve_network_core(
         jnetwork=jnetwork,
         y0=y0,
         t_eval=t_snapshots,
+        time_grid=time_grid,
+        number_density=params["number_density"],
         temperature=params["temperature"],
         cr_rate=params["cr_rate"],
         fuv_field=params["fuv_field"],
@@ -212,6 +258,10 @@ def solve_network(
         atol=config.atol,
         rtol=config.rtol,
         max_steps=config.max_steps,
+        pcoeff=config.pcoeff,
+        icoeff=config.icoeff,
+        dcoeff=config.dcoeff,
+        factormax=config.factormax,
     )
 
 
@@ -260,12 +310,28 @@ def solve_network_batch(
     solutions : diffrax.Solution
         Batch of integration results, shape (batch_size, ...)
     """
+    # For batch solving, assume constant parameters (no time dependence)
+    time_grid = jnp.array([t_eval[0], t_eval[-1]])
+    number_densities = jnp.ones(len(temperatures)) * 1e4  # Default value
+
     return jax.vmap(
-        lambda temp, cr, fuv, av: solve_network_core(
-            jnetwork, y0, t_eval, temp, cr, fuv, av, solver_name, atol, rtol, max_steps
+        lambda nd, temp, cr, fuv, av: solve_network_core(
+            jnetwork,
+            y0,
+            t_eval,
+            time_grid,
+            jnp.atleast_1d(nd),
+            jnp.atleast_1d(temp),
+            jnp.atleast_1d(cr),
+            jnp.atleast_1d(fuv),
+            jnp.atleast_1d(av),
+            solver_name,
+            atol,
+            rtol,
+            max_steps,
         ),
-        in_axes=(0, 0, 0, 0),
-    )(temperatures, cr_rates, fuv_fields, visual_extinctions)
+        in_axes=(0, 0, 0, 0, 0),
+    )(number_densities, temperatures, cr_rates, fuv_fields, visual_extinctions)
 
 
 def compute_derivatives(
@@ -298,17 +364,27 @@ def compute_derivatives(
         raise Exception("Missing solution.ys or solution.ts.")
 
     params = config.get_physical_params_jax()
+    time_grid = config.get_time_grid()
+    time_grid_sec = time_grid * SPY
 
     dy = jnp.zeros_like(solution.ys)
+
+    def _get_param(t, param_array):
+        """Get parameter value at time t."""
+        if param_array.shape[0] == 1:
+            return param_array[0]
+        else:
+            return jnp.interp(t, time_grid_sec, param_array)
 
     for i, (t, y) in enumerate(zip(solution.ts, solution.ys, strict=False)):
         dy_i = jnetwork(
             t,
             y,
-            params["temperature"],
-            params["cr_rate"],
-            params["fuv_field"],
-            params["visual_extinction"],
+            _get_param(t, params["number_density"]),
+            _get_param(t, params["temperature"]),
+            _get_param(t, params["cr_rate"]),
+            _get_param(t, params["fuv_field"]),
+            _get_param(t, params["visual_extinction"]),
         )
         dy = dy.at[i].set(dy_i)
 
@@ -346,17 +422,28 @@ def compute_reaction_rates(
         raise Exception("Missing solution.ys or solution.ts.")
 
     params = config.get_physical_params_jax()
+    time_grid = config.get_time_grid()
+    time_grid_sec = time_grid * SPY
 
     n_snapshots = len(solution.ts)
     n_reactions = len(network.reactions)
     rates = jnp.zeros((n_snapshots, n_reactions))
 
+    def _get_param(t, param_array):
+        """Get parameter value at time t."""
+        if param_array.shape[0] == 1:
+            return param_array[0]
+        else:
+            return jnp.interp(t, time_grid_sec, param_array)
+
     for i in range(n_snapshots):
+        t = solution.ts[i]
         rates_i = jnetwork.get_rates(
-            params["temperature"],
-            params["cr_rate"],
-            params["fuv_field"],
-            params["visual_extinction"],
+            _get_param(t, params["number_density"]),
+            _get_param(t, params["temperature"]),
+            _get_param(t, params["cr_rate"]),
+            _get_param(t, params["fuv_field"]),
+            _get_param(t, params["visual_extinction"]),
             solution.ys[i],  # Load abundances from solution at snapshot i
         )
         rates = rates.at[i].set(rates_i)

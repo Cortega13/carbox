@@ -12,10 +12,10 @@ class JReactionRateTerm(eqx.Module):
     """Base class for JAX-compatible reaction rate terms.
 
     All subclasses must implement __call__ with signature:
-        __call__(self, temperature, cr_rate, uv_field, visual_extinction, abundance_vector)
+        __call__(self, number_density, temperature, cr_rate, uv_field, visual_extinction, abundance_vector)
 
     This ensures consistent signatures for JIT compilation.
-    Reactions that don't need abundance_vector can simply ignore it.
+    Reactions that don't need certain parameters can simply ignore them.
     """
 
 

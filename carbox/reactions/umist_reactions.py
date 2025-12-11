@@ -21,6 +21,7 @@ class UMISTPhotoReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,

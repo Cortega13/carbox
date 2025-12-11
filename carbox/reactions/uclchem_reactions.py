@@ -91,6 +91,7 @@ class UCLCHEMH2FormReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -230,6 +231,7 @@ class UCLCHEMPhotonReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -269,6 +271,7 @@ class IonPol1Reaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -306,6 +309,7 @@ class IonPol2Reaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -334,6 +338,7 @@ class GARReaction(Reaction):
         class GARRateTerm(JReactionRateTerm):
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -381,6 +386,7 @@ class H2PhotoDissReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -436,6 +442,7 @@ class COPhotoDissReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -501,6 +508,7 @@ class CIonizationReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,

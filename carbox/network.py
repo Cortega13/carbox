@@ -26,16 +26,26 @@ class JNetwork(eqx.Module):
         self.reactant_multipliers = reactant_multipliers
 
     @jax.jit
-    def get_rates(self, temperature, cr_rate, fuv_rate, visual_extinction, abundances):
-        """Get the reaction rates for the given temperature, cosmic ray ionisation rate, FUV radiation field, and abundance vector."""
-        # TODO: optimization: The most Jax way to do optimize would be to create one class with all the reactions of one type and all their constants.
-        # rates = jnp.empty(len(self.reactions))
-        # for i, reaction in enumerate(self.reactions):
-        #     rates = rates.at[i].set(reaction(temperature, cr_rate, fuv_rate))
-        # return rates
+    def get_rates(
+        self,
+        number_density,
+        temperature,
+        cr_rate,
+        fuv_rate,
+        visual_extinction,
+        abundances,
+    ):
+        """Get the reaction rates for the given physical parameters and abundance vector."""
         return jnp.hstack(
             [
-                reaction(temperature, cr_rate, fuv_rate, visual_extinction, abundances)
+                reaction(
+                    number_density,
+                    temperature,
+                    cr_rate,
+                    fuv_rate,
+                    visual_extinction,
+                    abundances,
+                )
                 for reaction in self.reactions
             ]
         )
@@ -57,27 +67,25 @@ class JNetwork(eqx.Module):
         self,
         time: Array,
         abundances: Array,
+        number_density: Array,
         temperature: Array,
-        # density: jnp.array,
         cr_rate: Array,
         fuv_rate: Array,
         visual_extinction: Array,
     ) -> Array:
-        # abundances = abundances * density
-
         # Calculate the reaction rates (pass abundances for self-shielding reactions)
         rates = self.get_rates(
-            temperature, cr_rate, fuv_rate, visual_extinction, abundances
+            number_density,
+            temperature,
+            cr_rate,
+            fuv_rate,
+            visual_extinction,
+            abundances,
         )
-        # jax.debug.print("rates: {rates}", rates=rates)
         # Get the matrix that encodes the reactants that need to be multiplied to get the flux
         rates = self.multiply_rates_by_abundance(rates, abundances)
         # Calculate the change in abundances
-        # TODO: check that we are not loosing too much precision with the matmul?
-        # Use BCCOO to avoid conversion to dense
         return self.incidence @ rates
-        # Regular implmentation with dense matrix and highest precision
-        # return jnp.matmul(self.incidence, rates, precision=jax.lax.Precision.HIGHEST)
 
 
 @dataclass

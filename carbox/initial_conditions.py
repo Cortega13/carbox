@@ -47,19 +47,19 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
     """
     n_species = len(network.species)
 
+    # Get initial number density (handles both scalar and list)
+    initial_number_density = config.get_initial_number_density()
+
     # Initialize all to floor (absolute abundance)
-    y0 = jnp.ones(n_species) * config.abundance_floor * config.number_density
+    y0 = jnp.ones(n_species) * config.abundance_floor * initial_number_density
 
     # Set specified abundances (convert fractional → absolute)
     species_names = [s.name for s in network.species]
     for species_name, fractional_abundance in config.initial_abundances.items():
-        # print(
-        #    f"Setting initial abundance for {species_name}: {fractional_abundance:.3e} (fractional)"
-        # )
         if species_name in species_names:
             idx = species_names.index(species_name)
             # Convert fractional abundance to absolute abundance
-            absolute_abundance = fractional_abundance * config.number_density
+            absolute_abundance = fractional_abundance * initial_number_density
             y0 = y0.at[idx].set(absolute_abundance)
         else:
             print(f"Warning: Species '{species_name}' in config not found in network")

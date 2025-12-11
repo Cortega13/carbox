@@ -17,6 +17,7 @@ class FUVReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -41,6 +42,7 @@ class H2FormReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,

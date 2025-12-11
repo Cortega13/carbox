@@ -21,6 +21,7 @@ class KAReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -52,10 +53,11 @@ class KAFixedReaction(Reaction):
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class KAFixedReactionRateTerm(JReactionRateTerm):
-            reaction_coeff: float
+            reaction_coeff: Array
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -78,6 +80,7 @@ class CRPReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
@@ -104,6 +107,7 @@ class CRPhotoReaction(Reaction):
 
             def __call__(
                 self,
+                number_density,
                 temperature,
                 cr_rate,
                 uv_field,
