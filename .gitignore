@@ -4,6 +4,7 @@ __pycache__
 .log
 .DS_Store
 plugins
+.pytest_cache/
 
 # IDE stuff
 .kilocode/
@@ -11,5 +12,5 @@ pyproject.toml
 
 .venv/
 data/
-benchmarks/cosmicai/
+benchmarks/cosmicai/data/
 outputs/

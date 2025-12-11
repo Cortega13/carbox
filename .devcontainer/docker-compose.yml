@@ -6,4 +6,5 @@ services:
         volumes:
             - ..:/workspace/carbox:cached
             - C:\Users\carlo\.gemini:/home/carbox/.gemini
+            - C:\Users\carlo\.codex:/home/carbox/.codex
         command: sleep infinity

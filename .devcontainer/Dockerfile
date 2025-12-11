@@ -19,6 +19,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @google/gemini-cli
+RUN npm i -g @openai/codex
 
 # Set locale
 ENV LANG=en_US.UTF-8
