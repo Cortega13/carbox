@@ -57,23 +57,6 @@ def density_to_number_density(density):
     return density / (mean_molecular_mass * hydrogen_mass)
 
 
-def kalman_filter(series, process_var=1e-2, meas_var=1e-1, init_error=1e-3):
-    series = np.asarray(series)
-    n = len(series)
-    xhat = np.zeros(n)
-    P = np.zeros(n)
-    K = np.zeros(n)
-    xhat[0] = series[0]
-    P[0] = init_error
-    for k in range(1, n):
-        xhat_minus = xhat[k - 1]
-        P_minus = P[k - 1] + process_var
-        K[k] = P_minus / (P_minus + meas_var)
-        xhat[k] = xhat_minus + K[k] * (series[k] - xhat_minus)
-        P[k] = (1 - K[k]) * P_minus
-    return xhat
-
-
 for benchmark_name, benchmark_info in benchmarks.items():
     benchmark_path = benchmark_info["path"]
     timestep = benchmark_info["timestep"]
@@ -131,19 +114,6 @@ for benchmark_name, benchmark_info in benchmarks.items():
         ]
 
         df["density"] = density_to_number_density(df["density"].values)
-
-        # df['radField'] = np.log10(df['radField'].values)
-        # df['radField'] = df['radField'].rolling(window=20, center=True, min_periods=1).mean()
-
-        # df['radField'] = np.power(10, df['radField'])
-
-        # df['av'] = np.log10(df['av'].values)
-        # df['av'] = df['av'].rolling(window=20, center=True, min_periods=1).mean()
-
-        # df['av'] = np.power(10, df['av'])
-
-        # df['radField'] = kalman_filter(np.log10(df['radField'].values))
-        # df['radField'] = np.power(10, df['radField'])
 
         csv_filename = os.path.join(
             final_save_path,

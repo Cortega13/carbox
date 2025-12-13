@@ -14,3 +14,4 @@ pyproject.toml
 data/
 benchmarks/cosmicai/data/
 outputs/
+notebooks/analysis/plots/
