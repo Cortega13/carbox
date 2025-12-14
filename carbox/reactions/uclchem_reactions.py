@@ -1,5 +1,7 @@
 """UCLCHEM-specific reactions."""
 
+from typing import Any
+
 import jax.numpy as jnp
 from jax import Array
 
@@ -23,11 +25,11 @@ class UCLCHEMH2FormReaction(Reaction):
 
     def __init__(
         self,
-        reaction_type,
-        reactants,
-        products,
-        alpha=1.0,
-        **kwargs,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float = 1.0,
+        **kwargs: Any,
     ):
         """Initialize H2 formation reaction.
 
@@ -91,12 +93,12 @@ class UCLCHEMH2FormReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 gas_temp = temperature
                 dust_temp = temperature
 
@@ -222,7 +224,15 @@ class UCLCHEMPhotonReaction(Reaction):
         k = alpha * exp(-gamma * visual_extinction) * uv_field / 1.7
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -236,12 +246,12 @@ class UCLCHEMPhotonReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return (
                     self.alpha
                     * jnp.exp(-self.gamma * visual_extinction)
@@ -261,7 +271,15 @@ class IonPol1Reaction(Reaction):
     k = α * β * (0.62 + 0.4767 * γ * sqrt(300/T))
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -275,12 +293,12 @@ class IonPol1Reaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return (
                     self.alpha
                     * self.beta
@@ -298,7 +316,15 @@ class IonPol2Reaction(Reaction):
     k = α * β * (1.0 + 0.0967 * γ * sqrt(300/T) + γ² * 300/(10.526 * T))
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -312,12 +338,12 @@ class IonPol2Reaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 sqrt_term = 0.0967 * self.gamma * jnp.sqrt(300.0 / temperature)
                 quadratic_term = self.gamma**2 * 300.0 / (10.526 * temperature)
                 return self.alpha * self.beta * (1.0 + sqrt_term + quadratic_term)
@@ -333,20 +359,22 @@ class GARReaction(Reaction):
     Simplified implementation for gas-phase comparison
     """
 
-    def __init__(self, reaction_type, reactants, products, *args):  # noqa
+    def __init__(  # noqa
+        self, reaction_type: str, reactants: list[str], products: list[str], *args: Any
+    ):
         super().__init__(reaction_type, reactants, products)
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class GARRateTerm(JReactionRateTerm):
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
-                return NotImplementedError
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
+                return NotImplementedError  # type:ignore
 
         return NotImplementedError  # type:ignore
 
@@ -360,13 +388,13 @@ class H2PhotoDissReaction(Reaction):
 
     def __init__(  # noqa
         self,
-        reaction_type,
-        reactants,
-        products,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
         h2_species_index: int | None,
-        cloud_radius_pc=1.0,
-        number_density=1e4,
-        turb_vel=1e5,
+        cloud_radius_pc: float = 1.0,
+        number_density: float = 1e4,
+        turb_vel: float = 1e5,
     ):
         super().__init__(reaction_type, reactants, products)
         self.cloud_radius_pc = cloud_radius_pc
@@ -390,16 +418,19 @@ class H2PhotoDissReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 n_h2 = abundance_vector[self.h2_species_index]
-                n_h2_column = compute_column_density(n_h2, self.cloud_radius_pc)
+                n_h2_column = compute_column_density(n_h2, self.cloud_radius_pc)  # type: ignore
                 rate = h2_photo_diss_rate(
-                    n_h2_column, uv_field, visual_extinction, self.turb_vel
+                    n_h2_column,
+                    uv_field,
+                    visual_extinction,
+                    self.turb_vel,  # type: ignore
                 )
                 return rate
 
@@ -418,13 +449,13 @@ class COPhotoDissReaction(Reaction):
 
     def __init__(  # noqa
         self,
-        reaction_type,
-        reactants,
-        products,
-        h2_species_index,
-        co_species_index,
-        cloud_radius_pc=1.0,
-        number_density=1e4,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        h2_species_index: int,
+        co_species_index: int,
+        cloud_radius_pc: float = 1.0,
+        number_density: float = 1e4,
     ):
         super().__init__(reaction_type, reactants, products)
         self.cloud_radius_pc = cloud_radius_pc
@@ -448,20 +479,23 @@ class COPhotoDissReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 n_h2 = abundance_vector[self.h2_species_index]
                 n_co = abundance_vector[self.co_species_index]
 
-                n_h2_column = compute_column_density(n_h2, self.cloud_radius_pc)
-                n_co_column = compute_column_density(n_co, self.cloud_radius_pc)
+                n_h2_column = compute_column_density(n_h2, self.cloud_radius_pc)  # type: ignore
+                n_co_column = compute_column_density(n_co, self.cloud_radius_pc)  # type: ignore
 
                 return co_photo_diss_rate(
-                    n_h2_column, n_co_column, uv_field, visual_extinction
+                    n_h2_column,
+                    n_co_column,
+                    uv_field,
+                    visual_extinction,  # type: ignore
                 )
 
         return COPhotoDissRateTerm(
@@ -480,15 +514,15 @@ class CIonizationReaction(Reaction):
 
     def __init__(  # noqa
         self,
-        reaction_type,
-        reactants,
-        products,
-        c_species_index,
-        h2_species_index,
-        alpha=3.5e-10,
-        gamma=3.0,
-        cloud_radius_pc=1.0,
-        number_density=1e4,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        c_species_index: int,
+        h2_species_index: int,
+        alpha: float = 3.5e-10,
+        gamma: float = 3.0,
+        cloud_radius_pc: float = 1.0,
+        number_density: float = 1e4,
     ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
@@ -516,26 +550,26 @@ class CIonizationReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 n_c = abundance_vector[self.c_species_index]
                 n_h2 = abundance_vector[self.h2_species_index]
 
-                n_c_column = compute_column_density(n_c, self.cloud_radius_pc)
-                n_h2_column = compute_column_density(n_h2, self.cloud_radius_pc)
+                n_c_column = compute_column_density(n_c, self.cloud_radius_pc)  # type: ignore
+                n_h2_column = compute_column_density(n_h2, self.cloud_radius_pc)  # type: ignore
 
                 return c_ionization_rate(
-                    self.alpha,
-                    self.gamma,
+                    self.alpha,  # type: ignore
+                    self.gamma,  # type: ignore
                     temperature,
-                    n_c_column,
-                    n_h2_column,
+                    n_c_column,  # type: ignore
+                    n_h2_column,  # type: ignore
                     visual_extinction,
-                    uv_field,
+                    uv_field,  # type: ignore
                 )
 
         return CIonizationRateTerm(

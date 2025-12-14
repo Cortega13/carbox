@@ -1,6 +1,6 @@
 """Mass and atomic weight for all elementals."""
 
-elemental_dict = {
+elemental_dict: dict[str, dict[str, float | int]] = {
     "dummy": {"mass": 0e0, "atomic_weight": 0},
     "CRP": {"mass": 0e0, "atomic_weight": 0},
     "CR": {"mass": 0e0, "atomic_weight": 0},

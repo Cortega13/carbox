@@ -30,7 +30,12 @@ class JNetwork(eqx.Module):
 
     @jax.jit
     def get_rates(
-        self, temperature, cr_rate, fuv_rate, visual_extinction, abundances
+        self,
+        temperature: Array,
+        cr_rate: Array,
+        fuv_rate: Array,
+        visual_extinction: Array,
+        abundances: Array,
     ) -> jnp.ndarray:
         """Get the reaction rates for the given temperature, cosmic ray ionisation rate, FUV radiation field, and abundance vector."""
         # TODO: optimization: The most Jax way to do optimize would be to create one class with all the reactions of one type and all their constants.
@@ -46,7 +51,7 @@ class JNetwork(eqx.Module):
         )
 
     @jax.jit
-    def multiply_rates_by_abundance(self, rates, abundances):
+    def multiply_rates_by_abundance(self, rates: Array, abundances: Array) -> Array:
         """Multiply the rates by the abundances of the reactants."""
         # We scatter the abunndances in two columns, with unity if it is monomolecular
         # This is achieved by "dropping" values we cannnot reach. Then take the product of each row, and mulitply it with the rates.
@@ -114,11 +119,11 @@ class Network:
             self.species, self.reactions
         )
 
-    def species_count(self):
+    def species_count(self) -> int:
         """Get the number of species in the network."""
         return self.incidence.shape[0]
 
-    def reaction_count(self):
+    def reaction_count(self) -> int:
         """Get the number of reactions in the network."""
         return self.incidence.shape[1]
 
@@ -155,7 +160,7 @@ class Network:
             incidence = sparse.BCOO.fromdense(incidence)
         return incidence, reactant_multipliers
 
-    def compute_reactant_multipliers(self, incidence):
+    def compute_reactant_multipliers(self, incidence: jnp.ndarray) -> jnp.ndarray:
         """Compute reactant multipliers from dense incidence matrix."""
         # reactants that need to be multiplied by the abundances and ensure they are repeated
         # the correct number of times. Use double entries to avoid power in the computation.
@@ -190,7 +195,9 @@ class Network:
         """Get the index of a species in the network."""
         return [sp.name for sp in self.species].index(species)
 
-    def get_elemental_contents(self, elements=["C", "H", "O", "charge"]):
+    def get_elemental_contents(
+        self, elements: list[str] = ["C", "H", "O", "charge"]
+    ) -> jnp.ndarray:
         """Get the elemental contents of the species in the network."""
         # Create a dictionary to map species to their elemental content
         element_map = {element: idx for idx, element in enumerate(elements)}

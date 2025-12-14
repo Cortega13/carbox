@@ -23,6 +23,7 @@ import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import jax
 
@@ -52,7 +53,7 @@ def run_simulation(
     config: SimulationConfig,
     format_type: NetworkNames | None = None,
     verbose: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Run a chemical kinetics simulation.
 
     Workflow:
@@ -211,7 +212,7 @@ def run_simulation(
     }
 
 
-def main():
+def main() -> None:
     """Command-line interface for Carbox."""
     parser = argparse.ArgumentParser(
         description="Carbox: JAX-accelerated chemical kinetics simulation",

@@ -13,7 +13,15 @@ class KAReaction(Reaction):
         k = alpha * (T / 300)^beta * exp(-gamma / T)
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -27,12 +35,12 @@ class KAReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 # α(T/300K​)^βexp(−γ/T)
                 return (
                     self.alpha
@@ -53,7 +61,14 @@ class KAFixedReaction(Reaction):
     """
 
     def __init__(  # noqa
-        self, reaction_type, reactants, products, alpha, beta, gamma, temperature
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+        temperature: float,
     ):
         super().__init__(reaction_type, reactants, products)
         self.reaction_coeff = (
@@ -68,12 +83,12 @@ class KAFixedReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return self.reaction_coeff
 
         return KAFixedReactionRateTerm(jnp.array(self.reaction_coeff))
@@ -86,7 +101,13 @@ class CRPReaction(Reaction):
         k = alpha * cr_rate
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha):  # noqa
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
 
@@ -96,12 +117,12 @@ class CRPReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return cr_rate * self.alpha
 
         return CRPReactionRateTerm(jnp.array(self.alpha))
@@ -115,7 +136,15 @@ class CRPhotoReaction(Reaction):
         where omega = 0.5 (grain albedo)
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -129,12 +158,12 @@ class CRPhotoReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return (
                     1.31e-17
                     * cr_rate

@@ -17,19 +17,19 @@ class Species:
     mass: float
     charge: int = 0
 
-    def __str__(self):  # noqa
+    def __str__(self) -> str:  # noqa
         return f"{self.name} ({self.mass}, {self.charge})"
 
-    def __repr__(self):  # noqa
+    def __repr__(self) -> str:  # noqa
         return f"Species({self.name}, {self.mass}, {self.charge})"
 
-    def __eq__(self, other):  # noqa
+    def __eq__(self, other: object) -> bool:  # noqa
         if isinstance(other, Species):
             return self.name == other.name
         elif isinstance(other, str):
             return self.name == other
         return False
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         """Hashes the name of this species."""
         return hash(self.name)

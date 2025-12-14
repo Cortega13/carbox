@@ -13,7 +13,15 @@ class UMISTPhotoReaction(Reaction):
         k = alpha * (uv_field / 1.7) * exp(-gamma * visual_extinction)
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -26,12 +34,12 @@ class UMISTPhotoReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return (
                     self.alpha
                     * (uv_field / 1.7)
