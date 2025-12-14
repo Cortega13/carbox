@@ -10,8 +10,7 @@ plugins
 pyproject.toml
 
 .venv/
-data/
-benchmarks_cosmicai/
+benchmarks/cosmicai/data/
 outputs/
 notebooks/analysis/plots/
 docs/*.md

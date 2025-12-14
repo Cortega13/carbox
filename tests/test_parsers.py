@@ -36,8 +36,8 @@ class TestUnifiedParsers:
         """Define test file paths exactly like unified_parser_demo.py."""
         return {
             "uclchem": "uclchem/src/uclchem/reactions.csv",
-            "umist": "data/umist22.csv",
-            "latent_tgas": "data/simple_latent_tgas.csv",
+            "umist": "network_files/umist22.csv",
+            "latent_tgas": "network_files/simple_latent_tgas.csv",
         }
 
     def test_supported_formats(self, parser):
@@ -177,4 +177,7 @@ class TestUnifiedParsers:
 
         # Test unsupported format
         with pytest.raises(ValueError, match="Unsupported format"):
-            parse_chemical_network("data/simple_latent_tgas.csv", "invalid_format")  # type:ignore
+            parse_chemical_network(
+                "network_files/simple_latent_tgas.csv",
+                "invalid_format",  # type:ignore
+            )

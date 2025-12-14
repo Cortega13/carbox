@@ -13,10 +13,10 @@ From Python:
         temperature=50.0,
         t_end=1e6,
     )
-    run_simulation('data/network.csv', config, format_type='latent_tgas')
+    run_simulation('network_files/network.csv', config, format_type='latent_tgas')
 
 From command line:
-    python -m carbox.main --input data/network.csv --config config.yaml
+    python -m carbox.main --input network_files/network.csv --config config.yaml
 """
 
 import argparse
@@ -86,7 +86,7 @@ def run_simulation(
     Examples:
     --------
     >>> config = SimulationConfig(number_density=1e4, t_end=1e5)
-    >>> results = run_simulation("data/network.csv", config)
+    >>> results = run_simulation("network_files/network.csv", config)
     """
     start_time = datetime.now()
 
@@ -219,16 +219,16 @@ def main():
         epilog="""
 Examples:
   # Run with default parameters
-  python -m carbox.main --input data/network.csv
+  python -m carbox.main --input network_files/network.csv
 
   # Use configuration file
-  python -m carbox.main --input data/network.csv --config my_config.yaml
+  python -m carbox.main --input network_files/network.csv --config my_config.yaml
 
   # Specify format explicitly
-  python -m carbox.main --input data/network.csv --format umist
+  python -m carbox.main --input network_files/network.csv --format umist
 
   # Custom output directory and run name
-  python -m carbox.main --input data/network.csv --output results/ --name test_run
+  python -m carbox.main --input network_files/network.csv --output results/ --name test_run
         """,
     )
 
