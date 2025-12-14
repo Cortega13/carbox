@@ -1,5 +1,4 @@
-"""
-Carbox Test Suite
+"""Carbox Test Suite.
 
 Unit tests for the Carbox chemical kinetics simulation framework.
 """

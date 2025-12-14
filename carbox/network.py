@@ -6,8 +6,11 @@ from functools import partial
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from jax.experimental import sparse
+
+from carbox.reactions.reactions import JReactionRateTerm
 
 from .reactions import Reaction
 from .species import Species
@@ -17,16 +20,18 @@ class JNetwork(eqx.Module):
     """Jax Jit compiled Network."""
 
     incidence: jnp.ndarray
-    reactions: list[Reaction]
+    reactions: list[JReactionRateTerm]
     reactant_multipliers: jnp.ndarray
 
-    def __init__(self, incidence, reactions, reactant_multipliers):
+    def __init__(self, incidence, reactions, reactant_multipliers):  # noqa
         self.incidence = incidence  # S, R
         self.reactions = reactions  # R
         self.reactant_multipliers = reactant_multipliers
 
     @jax.jit
-    def get_rates(self, temperature, cr_rate, fuv_rate, visual_extinction, abundances):
+    def get_rates(
+        self, temperature, cr_rate, fuv_rate, visual_extinction, abundances
+    ) -> jnp.ndarray:
         """Get the reaction rates for the given temperature, cosmic ray ionisation rate, FUV radiation field, and abundance vector."""
         # TODO: optimization: The most Jax way to do optimize would be to create one class with all the reactions of one type and all their constants.
         # rates = jnp.empty(len(self.reactions))
@@ -53,7 +58,7 @@ class JNetwork(eqx.Module):
         return rates * rates_multiplier
 
     @partial(jax.profiler.annotate_function, name="JNetwork._call__")
-    def __call__(
+    def __call__(  # noqa
         self,
         time: Array,
         abundances: Array,
@@ -117,15 +122,31 @@ class Network:
         """Get the number of reactions in the network."""
         return self.incidence.shape[1]
 
-    def construct_incidence(self, species: list[Species], reactions):
+    def construct_incidence(
+        self, species: list[Species], reactions: list[Reaction]
+    ) -> tuple[jnp.ndarray | sparse.BCOO, jnp.ndarray]:
+        """Construct the incidence matrix and reactant multipliers.
+
+        Args:
+            species: List of Species objects.
+            reactions: List of Reaction objects.
+
+        Returns:
+            tuple[jnp.ndarray | sparse.BCOO, jnp.ndarray]: A tuple containing:
+                - incidence: The incidence matrix (sparse BCOO or dense jnp.ndarray).
+                - reactant_multipliers: Array of reactant indices for rate multiplication.
+        """
         index = {sp.name: idx for idx, sp in enumerate(species)}
-        incidence = jnp.zeros((len(species), len(reactions)), dtype=jnp.int16)  # S, R
+        # Use numpy for efficient in-place updates during construction
+        incidence_np = np.zeros((len(species), len(reactions)), dtype=np.int16)  # S, R
         # Fill the incidence matrix with all terms:
         for j, reaction in enumerate(reactions):
             for reactant in reaction.reactants:
-                incidence = incidence.at[index[reactant], j].add(-1)
+                incidence_np[index[reactant], j] -= 1
             for product in reaction.products:
-                incidence = incidence.at[index[product], j].add(1)
+                incidence_np[index[product], j] += 1
+
+        incidence = jnp.array(incidence_np)
 
         # Compute reactant multipliers from dense incidence before sparsifying
         reactant_multipliers = self.compute_reactant_multipliers(incidence)
@@ -152,7 +173,7 @@ class Network:
             reactants_for_multiply, times_for_multiply
         ):
             # multiplier allows us to reactions with identical reactants: H + H -> H2
-            for i in range(multiplier):
+            for _ in range(multiplier):
                 # Write the first column if there is still a filler value:
                 if reactant_multiplier[reactant_idx, 0] == filler_value:
                     reactant_multiplier = reactant_multiplier.at[reactant_idx, 0].set(

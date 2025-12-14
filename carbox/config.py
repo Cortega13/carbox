@@ -100,7 +100,7 @@ class SimulationConfig:
     max_steps: int = 4096
 
     # Output settings
-    output_dir: str = "output"
+    output_dir: str = "outputs"
     save_abundances: bool = True
     save_derivatives: bool = False
     save_rates: bool = False

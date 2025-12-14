@@ -1,8 +1,9 @@
 
 # Note
-This is a fork of the original repository primarily for testing features. 
+This is a fork of the original repository primarily for investigating surrogate modeling and speed-ups in the solver.
+Much of the original usecases were removed to reduce backward compatability maintenance.
 
-Full credit goes to GijsVermarien and the original repository listed [here](https://github.com/GijsVermarien/carbox.git).
+Full credit goes to GijsVermarien et al. and the original repository listed [here](https://github.com/GijsVermarien/carbox.git).
 The whitepaper they published is also linked here: [Carbox: an end-to-end differentiable astrochemical simulation framework](https://arxiv.org/abs/2511.10558).
 
 # Carbox

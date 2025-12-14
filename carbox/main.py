@@ -39,7 +39,7 @@ from .output import (
     save_reaction_rates,
     save_summary_report,
 )
-from .parsers import parse_chemical_network
+from .parsers import NetworkNames, parse_chemical_network
 from .solver import compute_derivatives, compute_reaction_rates, solve_network
 
 # JAX configuration for numerical stability
@@ -50,7 +50,7 @@ jax.config.update("jax_debug_nans", True)
 def run_simulation(
     network_file: str,
     config: SimulationConfig,
-    format_type: str | None = None,
+    format_type: NetworkNames | None = None,
     verbose: bool = True,
 ) -> dict:
     """Run a chemical kinetics simulation.

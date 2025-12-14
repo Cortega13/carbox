@@ -12,4 +12,6 @@ pyproject.toml
 .venv/
 data/
 benchmarks_cosmicai/
-output/
+outputs/
+notebooks/analysis/plots/
+docs/*.md

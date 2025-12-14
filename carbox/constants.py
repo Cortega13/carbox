@@ -1,3 +1,5 @@
+"""Mass and atomic weight for all elementals."""
+
 elemental_dict = {
     "dummy": {"mass": 0e0, "atomic_weight": 0},
     "CRP": {"mass": 0e0, "atomic_weight": 0},

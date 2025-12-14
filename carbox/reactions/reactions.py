@@ -1,5 +1,6 @@
 """Defines schemas for reactions."""
 
+from abc import abstractmethod
 from dataclasses import dataclass
 
 import equinox as eqx
@@ -17,6 +18,10 @@ class JReactionRateTerm(eqx.Module):
     This ensures consistent signatures for JIT compilation.
     Reactions that don't need abundance_vector can simply ignore it.
     """
+
+    @abstractmethod
+    def __call__(self, temperature, cr_rate, fuv_rate, visual_extinction, abundances):  # noqa
+        raise NotImplementedError
 
 
 def valid_species_check(species):
@@ -45,14 +50,16 @@ class Reaction:
         self.molecularity = np.array(self.reactants).shape[-1]
 
     def __str__(self):
+        """String representation of the reaction."""
         return f"{self.reactants} -> {self.products}"
 
     def __repr__(self):
+        """String representation of the dataclass."""
         return f"Reaction({self.reaction_type}, {self.reactants}, {self.products})\n"
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         # Abstract function to implement in subclasses
         raise NotImplementedError
 
-    def __call__(self):
+    def __call__(self, *args, **kwargs) -> JReactionRateTerm:  # noqa
         return self._reaction_rate_factory()
