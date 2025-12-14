@@ -1,14 +1,22 @@
 """Batch run Carbox benchmark tracers with joblib parallelism.
 
-python benchmarks/cosmicai/batch_run_carbox_benchmark.py --output-dir outputs --random-count 20
+python benchmarks/cosmicai/batch_run_carbox_benchmark.py --output-dir outputs --random-count=40 --batch-size=4
 """
 
 import argparse
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
 
+# Set JAX flags for CPU optimization (must be set before jax import)
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
+os.environ["XLA_FLAGS"] = (
+    "--xla_cpu_multi_thread_eigen=true --xla_cpu_enable_fast_math=true"
+)
+
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
@@ -174,8 +182,8 @@ def compute_fractional_abundances(
     matrix = build_stoichiometric_matrix(network.species, ELEMENTS)
     elemental = abundances @ matrix.T
     hydrogen_index = ELEMENTS.index("H")
-    hydrogen = np.clip(elemental[:, hydrogen_index], 1e-18, None)
-    fractions = abundances / hydrogen[:, None]
+    hydrogen = np.clip(elemental[..., hydrogen_index], 1e-18, None)
+    fractions = abundances / hydrogen[..., None]
     return np.clip(fractions, 1e-18, None)
 
 
@@ -267,6 +275,99 @@ def process_tracer(tracer: TracerDataset, output_dir: Path) -> float:
     return time() - start_time
 
 
+def process_tracer_batch(tracers: list[TracerDataset], output_dir: Path) -> float:
+    """Run solver for a batch of tracers."""
+    start_time = time()
+
+    if not tracers:
+        return 0.0
+
+    # Retrieve cached assets (loaded once per worker process)
+    network, jnetwork, template, species_names = get_cached_assets()
+
+    # Pre-allocate arrays
+    # Get time grid from first tracer (assumed constant for the batch)
+    first_frame = tracers[0].frame
+    orig_times = first_frame["time"].to_numpy(dtype=float)
+    time_grid = build_time_axis(orig_times)
+    t_eval = jnp.array(time_grid, dtype=float)
+
+    y0_list = []
+    dens_list = []
+    temp_list = []
+    av_list = []
+    rad_list = []
+
+    for tracer in tracers:
+        frame = tracer.frame
+        dens = frame["density"].to_numpy(dtype=float)
+        temp = frame["gasTemp"].to_numpy(dtype=float)
+        av = frame["av"].to_numpy(dtype=float)
+        rad = frame["radField"].to_numpy(dtype=float) * RADFIELD_FACTOR
+
+        y0_list.append(template * dens[0])
+        dens_list.append(dens)
+        temp_list.append(temp)
+        av_list.append(av)
+        rad_list.append(rad)
+
+    y0_batch = jnp.stack(y0_list)
+    dens_batch = jnp.stack(dens_list)
+    temp_batch = jnp.stack(temp_list)
+    av_batch = jnp.stack(av_list)
+    rad_batch = jnp.stack(rad_list)
+    cr_rates_batch = jnp.ones_like(dens_batch) * 1.6e-17
+
+    def _solve_batch_wrapper(y0, nd, temp, cr, fuv, av):
+        return solve_network_core(
+            jnetwork,
+            y0,
+            t_eval,
+            t_eval,
+            nd,
+            temp,
+            cr,
+            fuv,
+            av,
+            solver_name="kvaerno5",
+            atol=1e-14,
+            rtol=1e-6,
+            max_steps=500000,
+        )
+
+    # Vmap the solver wrapper
+    # We map over all arguments (0)
+    batch_solver = jax.vmap(_solve_batch_wrapper)
+
+    # Solve
+    solution = batch_solver(
+        y0_batch, dens_batch, temp_batch, cr_rates_batch, rad_batch, av_batch
+    )
+
+    # Process results
+    ys_batch = np.asarray(solution.ys)
+    ts_batch = np.asarray(solution.ts)
+
+    # Compute fractional abundances
+    # ys_batch is (batch, time, species)
+    fractional_batch = compute_fractional_abundances(ys_batch, network)
+
+    for i, tracer in enumerate(tracers):
+        save_tracer_output(
+            tracer.tracer_id,
+            ts_batch[i],
+            fractional_batch[i],
+            dens_list[i],
+            temp_list[i],
+            av_list[i],
+            rad_list[i],
+            species_names,
+            output_dir,
+        )
+
+    return time() - start_time
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Batch run Carbox tracers")
@@ -293,6 +394,9 @@ def parse_args() -> argparse.Namespace:
         "--output-dir", type=Path, default=Path("outputs"), help="Output dir"
     )
     parser.add_argument("--workers", type=int, default=None, help="Parallel workers")
+    parser.add_argument(
+        "--batch-size", type=int, default=None, help="Batch size per worker"
+    )
 
     return parser.parse_args()
 
@@ -307,17 +411,78 @@ def main() -> None:
         return
 
     workers = args.workers or cpu_count() or 1
-    print(f"Processing {len(tracers)} tracers with {workers} workers...")
 
+    # Determine batch size
+    # If not provided, try to balance between core saturation and vectorization
+    if args.batch_size:
+        batch_size = args.batch_size
+    else:
+        # Default strategy: ensure at least 1 batch per worker, then fill up
+        # For small tracer counts (like 40) and high cores (20), batch_size=2 is good.
+        # For large tracer counts, larger batch_size (e.g. 64) is better for SIMD.
+        # Let's cap batch size at 64 but ensure we use workers.
+        min_batches = workers
+        calculated_size = max(1, len(tracers) // min_batches)
+        batch_size = min(64, calculated_size)
+        # Ensure at least 1
+        batch_size = max(1, batch_size)
+
+    print(
+        f"Processing {len(tracers)} tracers with {workers} workers (batch size: {batch_size})..."
+    )
+
+    # Create batches
+    batches = [tracers[i : i + batch_size] for i in range(0, len(tracers), batch_size)]
+
+    start_wall_time = time()
     durations: list[float] = Parallel(n_jobs=workers)(
-        delayed(process_tracer)(tracer, args.output_dir) for tracer in tracers
+        delayed(process_tracer_batch)(batch, args.output_dir) for batch in batches
     )  # type: ignore
+    end_wall_time = time()
+    wall_time = end_wall_time - start_wall_time
 
     print(f"Completed {len(tracers)} tracers.")
-    print(f"Total time: {sum(durations):.2f}s")
-    print(f"Max tracer time: {max(durations):.2f}s")
-    print(f"Average tracer time: {sum(durations) / len(durations):.2f}s")
+
+    total_cpu_time = sum(durations)
+    throughput = len(tracers) / wall_time if wall_time > 0 else 0.0
+
+    print("-" * 40)
+    print(f"Wall Time:       {wall_time:.2f} s")
+    print(f"Throughput:      {throughput:.2f} tracers/s")
+    print(f"Total CPU Time:  {total_cpu_time:.2f} s")
+    print("-" * 40)
+
+    if durations:
+        print(f"Max batch time: {max(durations):.2f}s")
+        print(f"Average batch time: {total_cpu_time / len(durations):.2f}s")
+        print(f"Average time per tracer: {total_cpu_time / len(tracers):.2f}s")
 
 
 if __name__ == "__main__":
     main()
+
+
+"""
+python benchmarks/cosmicai/batch_run_carbox_benchmark.py --output-dir outputs --random-count=80 --batch-size=4
+Completed 80 tracers.
+----------------------------------------
+Wall Time:       412.39 s
+Throughput:      0.19 tracers/s
+Total CPU Time:  7391.24 s
+----------------------------------------
+Max batch time: 397.98s
+Average batch time: 369.56s
+Average time per tracer: 92.39s
+
+python benchmarks/cosmicai/batch_run_carbox_benchmark.py --output-dir outputs --random-count=20 --batch-size=1
+----------------------------------------
+Wall Time:       102.74 s
+Throughput:      0.19 tracers/s
+Total CPU Time:  1339.42 s
+----------------------------------------
+Max batch time: 87.35s
+Average batch time: 66.97s
+Average time per tracer: 66.97s
+
+
+"""

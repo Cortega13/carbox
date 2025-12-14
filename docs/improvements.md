@@ -90,9 +90,40 @@ The solver uses `atol=1e-14` and `rtol=1e-6`.
 **Recommendation:**
 *   Expose `atol` and `rtol` as command-line arguments to allow tuning.
 
-## Summary of Proposed Plan
+## 6. Clustering Strategies for Batched Execution
 
-1.  **Refactor Data Loading**: Bypass Pandas; extract numpy arrays directly.
-2.  **Batch Execution**: Implement `process_tracer_batch` using `jax.vmap`.
-3.  **Optimize Parallelism**: Feed batches to `joblib` workers.
-4.  **Global Constants**: Compute time grids once.
+**Problem:**
+Batching fails when tracers have vastly different "stiffness" (difficulty). The solver is forced to take the smallest step size required by *any* tracer in the batch, slowing down all others.
+
+**Solution: Group Similar Tracers**
+If we group tracers that are likely to have similar step-size requirements, we can minimize the "worst-case penalty".
+
+**Heuristics for Stiffness:**
+Stiffness in astrochemistry is often driven by:
+1.  **High Density:** Collisional rates scale with $n^2$ or $n^3$. Higher density -> faster reactions -> smaller steps.
+2.  **High Temperature:** Rate coefficients often scale exponentially with $T$ (Arrhenius).
+3.  **Radiation Fields:** Photochemistry can drive rapid changes.
+
+**Proposed Strategy:**
+1.  **Metric:** Calculate a "stiffness proxy" for each tracer.
+    *   *Option A (Simple):* `max(density)`
+    *   *Option B (Better):* `mean(density * temperature)` or `max(density * temperature)`
+2.  **Sort:** Sort the list of tracers based on this metric.
+3.  **Batch:** Create batches from this sorted list.
+    *   Batch 1: [Hardest, Hardest, ..., Hardest]
+    *   ...
+    *   Batch N: [Easiest, Easiest, ..., Easiest]
+
+**Why this works:**
+*   The "Hardest" batch will still be slow, but it won't drag down the "Easiest" tracers.
+*   The "Easiest" batch can race through with large step sizes, maximizing the benefit of vectorization.
+
+**Implementation:**
+*   In `main()`, before batching:
+    ```python
+    # Calculate proxy
+    for t in tracers:
+        t.stiffness_score = np.max(t.frame['density'])  # or similar
+
+    # Sort
+    tracers.sort(key=lambda t: t.stiffness_score)
