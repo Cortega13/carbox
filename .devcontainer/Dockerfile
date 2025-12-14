@@ -18,7 +18,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @google/gemini-cli
+RUN npm install -g @google/gemini-cli@latest
 
 # Set locale
 ENV LANG=en_US.UTF-8

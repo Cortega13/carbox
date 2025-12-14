@@ -34,6 +34,7 @@ from .initial_conditions import (
     validate_elemental_conservation,
 )
 from .output import (
+    SPY,
     save_abundances,
     save_derivatives,
     save_metadata,
@@ -142,7 +143,9 @@ def run_simulation(
     # Step 4: Solve ODE
     if verbose:
         print(f"Solving ODE system with {config.solver}...")
-        print(f"  Time range: {config.t_start:.2e} - {config.t_end:.2e} years")
+        print(
+            f"  Time range: {config.t_start / SPY:.2e} - {config.t_end / SPY:.2e} years"
+        )
         print(f"  Snapshots: {config.n_snapshots}")
         print("  Compiling solver (first call)...")
 

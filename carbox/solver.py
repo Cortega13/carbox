@@ -4,14 +4,10 @@ Wraps Diffrax solvers with appropriate settings for stiff chemistry ODEs.
 """
 
 import diffrax as dx
-import jax
 import jax.numpy as jnp
 
 from .config import SimulationConfig
 from .network import JNetwork, Network
-
-# Seconds per year
-SPY = 3600.0 * 24 * 365.0
 
 
 def get_solver(solver_name: str) -> dx.AbstractSolver:
@@ -47,37 +43,68 @@ def get_solver(solver_name: str) -> dx.AbstractSolver:
     return solvers[solver_name.lower()]()
 
 
+def build_physics_path(config: SimulationConfig) -> dx.CubicInterpolation:
+    """Build interpolated path for time-varying physical parameters.
+
+    Parameters
+    ----------
+    config : SimulationConfig
+        Configuration containing physical parameters
+
+    Returns:
+    -------
+    physics_path : dx.CubicInterpolation
+        Cubic interpolation path over time (seconds) with shape (n_times, 5)
+        Parameters: [temperature, cr_rate, fuv_field, visual_extinction, number_density]
+    """
+    params = config.get_physical_params_jax()
+    physics_t = params["physics_t"]
+    param_names = [
+        "temperature",
+        "cr_rate",
+        "fuv_field",
+        "visual_extinction",
+        "number_density",
+    ]
+
+    # Handle constant parameters by extending to simulation time range
+    if len(physics_t) == 1:
+        physics_t = jnp.array([config.t_start, config.t_end])
+        param_arrays = [
+            jnp.array([params[name][0], params[name][0]]) for name in param_names
+        ]
+    else:
+        param_arrays = [params[name] for name in param_names]
+
+    # Create cubic interpolation path (time in seconds)
+    physics_data = jnp.stack(param_arrays, axis=-1)
+    coeffs = dx.backward_hermite_coefficients(physics_t, physics_data)
+    return dx.CubicInterpolation(physics_t, coeffs)
+
+
 def solve_network_core(
     jnetwork: JNetwork,
     y0: jnp.ndarray,
     t_eval: jnp.ndarray,
-    temperature: jnp.ndarray,
-    cr_rate: jnp.ndarray,
-    fuv_field: jnp.ndarray,
-    visual_extinction: jnp.ndarray,
+    physics_path: dx.AbstractPath,
     solver_name: str = "kvaerno5",
     atol: float = 1e-18,
     rtol: float = 1e-12,
     max_steps: int = 4096,
 ) -> dx.Solution:
-    """Core ODE solver with raw JAX array parameters.
+    """Core ODE solver with time-varying physical parameters.
 
     Parameters
     ----------
     jnetwork : JNetwork
         Compiled JAX network with reaction rates
     y0 : jnp.ndarray
-        Initial abundance vector [cm^-3]
+        Initial fractional abundance vector [relative to H]
     t_eval : jnp.ndarray
-        Time points for evaluation [years]
-    temperature : jnp.ndarray
-        Gas temperature [K]
-    cr_rate : jnp.ndarray
-        Cosmic ray ionization rate [s^-1]
-    fuv_field : jnp.ndarray
-        FUV radiation field (Draine units)
-    visual_extinction : jnp.ndarray
-        Visual extinction Av [mag]
+        Time points for evaluation [seconds]
+    physics_path : dx.Path
+        Interpolated path of physical parameters over time.
+        Expected order: [temperature, cr_rate, fuv_field, visual_extinction, number_density]
     solver_name : str
         Solver name ('dopri5', 'kvaerno5', 'tsit5')
     atol : float
@@ -92,43 +119,50 @@ def solve_network_core(
     solution : diffrax.Solution
         Integration results
     """
-    # Convert time to seconds
-    t_eval_sec = t_eval * SPY
+
+    def ode_func(t, y, args):
+        """Compute time derivatives of fractional abundances.
+
+        Process:
+        1. Extract interpolated physical parameters from path
+        2. Convert fractional abundances to absolute densities
+        3. Calculate reaction rates using absolute densities
+        4. Convert rates back to fractional form
+
+        Ignores dilution effects from changing number density.
+        """
+        # Get interpolated parameters (physics_path expects seconds)
+        params = args.evaluate(t)
+        temperature, cr_rate, fuv_field, visual_extinction, number_density = params
+
+        # Fractional to absolute: n_i = X_i * n
+        y_abs = y * number_density
+
+        # Calculate absolute rates [cm^-3 s^-1]
+        dy_abs_dt = jnetwork(
+            t, y_abs, temperature, cr_rate, fuv_field, visual_extinction
+        )
+
+        # Absolute to fractional: dX_i/dt = (1/n) * dn_i/dt
+        return dy_abs_dt / number_density
 
     # Define ODE term
-    ode_term = dx.ODETerm(
-        lambda t, y, args: jnetwork(
-            t,
-            y,
-            args["temperature"],
-            args["cr_rate"],
-            args["fuv_field"],
-            args["visual_extinction"],
-        )
-    )
+    ode_term = dx.ODETerm(ode_func)
 
     # Get solver
     solver = get_solver(solver_name)
-
-    # Physical parameters
-    params = {
-        "temperature": temperature,
-        "cr_rate": cr_rate,
-        "fuv_field": fuv_field,
-        "visual_extinction": visual_extinction,
-    }
 
     # Solve
     solution = dx.diffeqsolve(
         ode_term,
         solver,
-        t0=t_eval_sec[0],
-        t1=t_eval_sec[-1],
+        t0=t_eval[0],
+        t1=t_eval[-1],
         dt0=1e-6,  # Initial timestep [s]
         y0=y0,
         stepsize_controller=dx.PIDController(atol=atol, rtol=rtol),
-        saveat=dx.SaveAt(ts=t_eval_sec),
-        args=params,
+        saveat=dx.SaveAt(ts=t_eval),
+        args=physics_path,
         max_steps=max_steps,
     )
 
@@ -147,7 +181,7 @@ def solve_network(
     jnetwork : JNetwork
         Compiled JAX network with reaction rates
     y0 : jnp.ndarray
-        Initial abundance vector [cm^-3]
+        Initial fractional abundance vector
     config : SimulationConfig
         Configuration with solver and physical parameters
 
@@ -156,27 +190,27 @@ def solve_network(
     solution : diffrax.Solution
         Integration results with:
         - ts: time array [s]
-        - ys: abundance array [n_snapshots, n_species]
+        - ys: fractional abundance array [n_snapshots, n_species]
         - stats: solver statistics
 
     Notes:
     -----
     - Uses logarithmic time sampling for astrophysical timescales
-    - Physical parameters passed as args to ODE function
+    - Physical parameters interpolated using CubicInterpolation
     - JIT compiled for performance (first call compiles)
     - Stiff solver (Kvaerno5) recommended for chemistry
     """
-    # Get physical parameters as JAX arrays
-    params = config.get_physical_params_jax()
+    # Build interpolation path for time-varying physical parameters
+    physics_path = build_physics_path(config)
 
-    # Time sampling (log-spaced in years)
+    # Time sampling (log-spaced in seconds)
     # Create log-spaced times with manual 0th timestep
     if config.t_start <= 0:
         # Start from very small value for log spacing (excluding t=0)
         # This captures early chemistry evolution
-        t_start_log = -9  # 10^-9 years (~31.5 microseconds)
+        t_start_log = 1e-6  # 1 microsecond
         t_log = jnp.logspace(
-            t_start_log, jnp.log10(config.t_end), config.n_snapshots - 1
+            jnp.log10(t_start_log), jnp.log10(config.t_end), config.n_snapshots - 1
         )
         # Prepend t=0 as the 0th timestep
         t_snapshots = jnp.concatenate([jnp.array([0.0]), t_log])
@@ -191,68 +225,12 @@ def solve_network(
         jnetwork=jnetwork,
         y0=y0,
         t_eval=t_snapshots,
-        temperature=params["temperature"],
-        cr_rate=params["cr_rate"],
-        fuv_field=params["fuv_field"],
-        visual_extinction=params["visual_extinction"],
+        physics_path=physics_path,
         solver_name=config.solver,
         atol=config.atol,
         rtol=config.rtol,
         max_steps=config.max_steps,
     )
-
-
-def solve_network_batch(
-    jnetwork: JNetwork,
-    y0: jnp.ndarray,
-    t_eval: jnp.ndarray,
-    temperatures: jnp.ndarray,
-    cr_rates: jnp.ndarray,
-    fuv_fields: jnp.ndarray,
-    visual_extinctions: jnp.ndarray,
-    solver_name: str = "kvaerno5",
-    atol: float = 1e-18,
-    rtol: float = 1e-12,
-    max_steps: int = 4096,
-) -> dx.Solution:
-    """Batch solve chemical network ODE system for parameter sweeps.
-
-    Parameters
-    ----------
-    jnetwork : JNetwork
-        Compiled JAX network with reaction rates
-    y0 : jnp.ndarray
-        Initial abundance vector [cm^-3] (same for all simulations)
-    t_eval : jnp.ndarray
-        Time points for evaluation [years] (same for all simulations)
-    temperatures : jnp.ndarray
-        Gas temperatures [K], shape (batch_size,)
-    cr_rates : jnp.ndarray
-        Cosmic ray ionization rates [s^-1], shape (batch_size,)
-    fuv_fields : jnp.ndarray
-        FUV radiation fields (Draine units), shape (batch_size,)
-    visual_extinctions : jnp.ndarray
-        Visual extinctions Av [mag], shape (batch_size,)
-    solver_name : str
-        Solver name ('dopri5', 'kvaerno5', 'tsit5')
-    atol : float
-        Absolute tolerance
-    rtol : float
-        Relative tolerance
-    max_steps : int
-        Maximum integration steps
-
-    Returns:
-    -------
-    solutions : diffrax.Solution
-        Batch of integration results, shape (batch_size, ...)
-    """
-    return jax.vmap(
-        lambda temp, cr, fuv, av: solve_network_core(
-            jnetwork, y0, t_eval, temp, cr, fuv, av, solver_name, atol, rtol, max_steps
-        ),
-        in_axes=(0, 0, 0, 0),
-    )(temperatures, cr_rates, fuv_fields, visual_extinctions)
 
 
 def compute_derivatives(
@@ -284,20 +262,32 @@ def compute_derivatives(
     if not (solution.ys and solution.ts):
         raise Exception("Missing solution.ys or solution.ts.")
 
-    params = config.get_physical_params_jax()
+    # Reconstruct physics path
+    physics_path = build_physics_path(config)
 
     dy = jnp.zeros_like(solution.ys)
 
-    for i, (t, y) in enumerate(zip(solution.ts, solution.ys, strict=False)):
-        dy_i = jnetwork(
-            t,
-            y,
-            params["temperature"],
-            params["cr_rate"],
-            params["fuv_field"],
-            params["visual_extinction"],
+    for i, (t_sec, y_frac) in enumerate(zip(solution.ts, solution.ys, strict=False)):
+        # Evaluate params (physics_path expects seconds)
+        temp, cr, fuv, av, density = physics_path.evaluate(t_sec)
+
+        # Convert fractional to absolute
+        y_abs = y_frac * density
+
+        # Compute absolute rate
+        dy_abs = jnetwork(
+            t_sec,
+            y_abs,
+            temp,
+            cr,
+            fuv,
+            av,
         )
-        dy = dy.at[i].set(dy_i)
+
+        # Convert to fractional rate
+        dy_frac = dy_abs / density
+
+        dy = dy.at[i].set(dy_frac)
 
     return dy
 
@@ -332,19 +322,29 @@ def compute_reaction_rates(
     if not (solution.ys and solution.ts):
         raise Exception("Missing solution.ys or solution.ts.")
 
-    params = config.get_physical_params_jax()
+    # Reconstruct physics path
+    physics_path = build_physics_path(config)
 
     n_snapshots = len(solution.ts)
     n_reactions = len(network.reactions)
     rates = jnp.zeros((n_snapshots, n_reactions))
 
     for i in range(n_snapshots):
+        # Evaluate params (physics_path expects seconds)
+        temp, cr, fuv, av, density = physics_path.evaluate(solution.ts[i])
+
+        # Fractional abundances from solution
+        y_frac = solution.ys[i]
+
+        # Convert to absolute for rate calculation
+        y_abs = y_frac * density
+
         rates_i = jnetwork.get_rates(
-            params["temperature"],
-            params["cr_rate"],
-            params["fuv_field"],
-            params["visual_extinction"],
-            solution.ys[i],  # Load abundances from solution at snapshot i
+            temp,
+            cr,
+            fuv,
+            av,
+            y_abs,
         )
         rates = rates.at[i].set(rates_i)
 

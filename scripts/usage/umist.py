@@ -5,9 +5,9 @@ from carbox.main import run_simulation
 from carbox.parsers import NetworkNames
 
 config = SimulationConfig(
-    number_density=1e4,
-    temperature=50.0,
-    t_end=1e5,
+    number_density=[1e4],
+    temperature=[50.0],
+    t_end=3.154e12,  # 100,000 years in seconds
     solver="kvaerno5",
     max_steps=500000,
     n_snapshots=5,

@@ -13,7 +13,9 @@ import pandas as pd
 
 from .config import SimulationConfig
 from .network import Network
-from .solver import SPY
+
+# Seconds per year (for display purposes only)
+SPY = 3600.0 * 24 * 365.0
 
 
 def prepare_output_directory(config: SimulationConfig) -> Path:
@@ -338,7 +340,9 @@ def save_summary_report(
     lines.append("")
 
     lines.append("Integration:")
-    lines.append(f"  Time range: {config.t_start:.2e} - {config.t_end:.2e} years")
+    lines.append(
+        f"  Time range: {config.t_start / SPY:.2e} - {config.t_end / SPY:.2e} years"
+    )
     lines.append(f"  Snapshots: {config.n_snapshots}")
     lines.append(f"  Solver: {config.solver}")
     lines.append(f"  Tolerances: atol={config.atol:.2e}, rtol={config.rtol:.2e}")

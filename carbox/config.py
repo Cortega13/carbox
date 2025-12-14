@@ -40,9 +40,9 @@ class SimulationConfig:
 
     Integration Parameters:
         t_start : float
-            Start time [years]
+            Start time [seconds]
         t_end : float
-            End time [years]
+            End time [seconds]
         n_snapshots : int
             Number of output snapshots (log-spaced)
         solver : str
@@ -68,11 +68,14 @@ class SimulationConfig:
     """
 
     # Physical parameters
-    number_density: float = 1e4
-    temperature: float = 50.0
-    cr_rate: float = 1e-17
-    fuv_field: float = 1.0
-    visual_extinction: float = 2.0  # Can be overridden by self-consistent calculation
+    physics_t: list[float] = field(default_factory=lambda: [0.0])
+    number_density: list[float] = field(default_factory=lambda: [1e4])
+    temperature: list[float] = field(default_factory=lambda: [50.0])
+    cr_rate: list[float] = field(default_factory=lambda: [1e-17])
+    fuv_field: list[float] = field(default_factory=lambda: [1.0])
+    visual_extinction: list[float] = field(
+        default_factory=lambda: [2.0]
+    )  # Can be overridden by self-consistent calculation
     gas_to_dust_ratio: float = 100.0
 
     # Cloud geometry (for photoreaction shielding and self-consistent Av)
@@ -92,7 +95,7 @@ class SimulationConfig:
 
     # Integration parameters
     t_start: float = 0.0
-    t_end: float = 1e6  # years
+    t_end: float = 3.154e13  # seconds (approximately 1 million years)
     n_snapshots: int = 1000
     solver: str = "kvaerno5"
     atol: float = 1e-18
@@ -130,7 +133,7 @@ class SimulationConfig:
         with open(filepath, "w") as f:
             json.dump(self.__dict__, f, indent=2)
 
-    def compute_visual_extinction(self) -> float:
+    def compute_visual_extinction(self) -> list[float]:
         """Compute self-consistent visual extinction from column density.
 
         Formula: Av = base_Av + N_H / 1.6e21
@@ -138,7 +141,7 @@ class SimulationConfig:
 
         Returns:
         -------
-        float
+        list[float]
             Visual extinction [mag]
         """
         if not self.use_self_consistent_av:
@@ -149,12 +152,14 @@ class SimulationConfig:
         cloud_radius_cm = self.cloud_radius_pc * pc_to_cm
 
         # Column density: N_H = n_H * L [cm^-2]
-        column_density = cloud_radius_cm * self.number_density
+        # Handle list of number densities
+        number_density_arr = jnp.array(self.number_density)
+        column_density = cloud_radius_cm * number_density_arr
 
         # Av = base_Av + N_H / 1.6e21
         av = self.base_av + column_density / 1.6e21
 
-        return av
+        return av.tolist()
 
     def get_physical_params_jax(self) -> dict[str, jnp.ndarray]:
         """Get JAX arrays for physical parameters (for solver args)."""
@@ -162,6 +167,8 @@ class SimulationConfig:
         visual_extinction = self.compute_visual_extinction()
 
         return {
+            "physics_t": jnp.array(self.physics_t),
+            "number_density": jnp.array(self.number_density),
             "temperature": jnp.array(self.temperature),
             "cr_rate": jnp.array(self.cr_rate),
             "fuv_field": jnp.array(self.fuv_field),
@@ -170,10 +177,23 @@ class SimulationConfig:
 
     def validate(self) -> None:
         """Basic validation of parameter ranges."""
-        assert 1e2 <= self.number_density <= 1e8, "number_density out of physical range"
-        assert 10 <= self.temperature <= 1e5, "temperature out of range"
-        # assert 1e-18 <= self.cr_rate <= 1e-12, "cr_rate out of typical range"
-        assert self.visual_extinction >= 0, "visual_extinction out of range"
+        # Validate lengths
+        n_points = len(self.physics_t)
+        if n_points > 1:
+            assert len(self.number_density) == n_points, (
+                "number_density length mismatch"
+            )
+            assert len(self.temperature) == n_points, "temperature length mismatch"
+            assert len(self.cr_rate) == n_points, "cr_rate length mismatch"
+            assert len(self.fuv_field) == n_points, "fuv_field length mismatch"
+            assert len(self.visual_extinction) == n_points, (
+                "visual_extinction length mismatch"
+            )
+
+        # Validate values (using first element or min/max)
+        # assert 1e2 <= min(self.number_density) and max(self.number_density) <= 1e8, "number_density out of physical range"
+        # assert 10 <= min(self.temperature) and max(self.temperature) <= 1e5, "temperature out of range"
+
         assert self.t_end > self.t_start, "t_end must be > t_start"
         assert self.solver in ["dopri5", "kvaerno5", "tsit5"], (
             f"Unknown solver: {self.solver}"

@@ -12,8 +12,6 @@ from .network import Network
 def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.ndarray:
     """Initialize abundance vector from configuration.
 
-    Converts fractional abundances (from config/YAML) to absolute abundances.
-
     Sets up y0 with:
     - Floor abundance for all species
     - Specified initial abundances from config
@@ -30,27 +28,26 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
     -------
     y0 : jnp.ndarray
         Initial abundance vector [# species]
-        Values in absolute abundance [cm^-3]: n_i = x_i * number_density
+        Values in fractional abundance: x_i = n_i / n_H
 
     Notes:
     -----
     Abundance Convention:
     - **Input (config.initial_abundances)**: Fractional abundances x_i
       (e.g., from UCLCHEM: x_i = n_i / n_H_nuclei)
-    - **Output (y0)**: Absolute abundances n_i [cm^-3]
-      Conversion: n_i = x_i * number_density
+    - **Output (y0)**: Fractional abundances x_i
 
-    - All species start at abundance_floor * number_density
-    - Specified species are set to their fractional values * number_density
+    - All species start at abundance_floor
+    - Specified species are set to their fractional values
     - Missing species in config are kept at floor
     - Extra species in config trigger warning but don't fail
     """
     n_species = len(network.species)
 
-    # Initialize all to floor (absolute abundance)
-    y0 = jnp.ones(n_species) * config.abundance_floor * config.number_density
+    # Initialize all to floor (fractional abundance)
+    y0 = jnp.ones(n_species) * config.abundance_floor
 
-    # Set specified abundances (convert fractional → absolute)
+    # Set specified abundances (fractional)
     species_names = [s.name for s in network.species]
     for species_name, fractional_abundance in config.initial_abundances.items():
         print(
@@ -58,9 +55,7 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
         )
         if species_name in species_names:
             idx = species_names.index(species_name)
-            # Convert fractional abundance to absolute abundance
-            absolute_abundance = fractional_abundance * config.number_density
-            y0 = y0.at[idx].set(absolute_abundance)
+            y0 = y0.at[idx].set(fractional_abundance)
         else:
             print(f"Warning: Species '{species_name}' in config not found in network")
 
