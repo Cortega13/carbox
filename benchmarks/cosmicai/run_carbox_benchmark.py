@@ -5,6 +5,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+import diffrax as dx
 import numpy as np
 import pandas as pd
 import yaml
@@ -20,14 +21,7 @@ RADFIELD_FACTOR = 1.7
 ELEMENTS = ["H", "HE", "C", "N", "O", "S", "SI", "FE", "MG", "NA", "CL", "P", "F"]
 DEFAULT_TRACER_DIR = Path("benchmarks/cosmicai/data/turbulence_tracers_csv")
 NETWORK_PATH = Path("data/uclchem_gas_phase_only.csv")
-INITIAL_PATH = Path(
-    "benchmarks/gijs_whitepaper/initial_conditions/gas_phase_only_initial.yaml"
-)
-
-
-def clean_species_name(name: str) -> str:
-    """Strip charge indicators from a species name."""
-    return name.replace("+", "").replace("-", "")
+INITIAL_PATH = Path("benchmarks/initial_conditions.yaml")
 
 
 def parse_element_counts(name: str, elements: Sequence[str]) -> dict[str, int]:
@@ -62,7 +56,9 @@ def build_stoichiometric_matrix(network_species, elements: Sequence[str]) -> np.
         name = species.name
         if name in ["E-", "ELECTR"]:
             continue
-        composition = parse_element_counts(clean_species_name(name), elements)
+        composition = parse_element_counts(
+            name.replace("+", "").replace("-", ""), elements
+        )
         for row, element in enumerate(elements):
             if element in composition:
                 matrix[row, column] = composition[element]
@@ -70,7 +66,7 @@ def build_stoichiometric_matrix(network_species, elements: Sequence[str]) -> np.
 
 
 def compute_conservation_vectors(
-    solution, network, elements: Sequence[str]
+    solution: dx.Solution, network, elements: Sequence[str]
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Return elemental abundance vectors at post-init and final states."""
     if solution.ys is None or len(solution.ys) < 2:

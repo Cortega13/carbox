@@ -19,7 +19,7 @@ before and after your code.
 -   Main functions should be highly readable through descriptive function names that clearly indicate the flow of operations
 -   All function inputs and outputs must have type annotations
 -   Types must be descriptive - use dataclasses, TypedDict, or type aliases for complex types
-
+-   The main function should be close to the bottom and all other functions should basically build support for it. The main function shows clearly the process of the script.
 
 
 - Do not use comments anywhere. I only like them in docstrings.

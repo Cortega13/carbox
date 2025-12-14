@@ -49,6 +49,27 @@ def get_solver(solver_name: str):
     return solvers[solver_name.lower()]()
 
 
+def compute_interp_left_and_weight(
+    t: jnp.ndarray, time_grid: jnp.ndarray
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Compute left index and interpolation weight."""
+    right = jnp.searchsorted(time_grid, t, side="right")
+    max_left = max(int(time_grid.shape[0]) - 2, 0)
+    left = jnp.clip(right - 1, 0, max_left)
+    t0 = time_grid[left]
+    t1 = time_grid[left + 1]
+    denom = jnp.where(t1 == t0, 1.0, t1 - t0)
+    weight = jnp.clip((t - t0) / denom, 0.0, 1.0)
+    return left, weight
+
+
+def interpolate_param_with_left_and_weight(
+    param: jnp.ndarray, left: jnp.ndarray, weight: jnp.ndarray
+) -> jnp.ndarray:
+    """Interpolate a parameter using a precomputed bracket."""
+    return param[left] * (1.0 - weight) + param[left + 1] * weight
+
+
 @partial(jax.jit, static_argnames=["solver_name", "max_steps"])
 def solve_network_core(
     jnetwork: JNetwork,
@@ -117,26 +138,52 @@ def solve_network_core(
     t_eval_sec = t_eval * SPY
     time_grid_sec = time_grid * SPY
 
-    # Helper function to interpolate or use scalar
-    def _get_param(t, param_array, time_grid_sec):
-        """Get parameter value at time t (interpolated or scalar)."""
-        if param_array.shape[0] == 1:
-            # Scalar case: no interpolation needed
-            return param_array[0]
-        else:
-            # Time-dependent case: linear interpolation
-            return jnp.interp(t, time_grid_sec, param_array)
+    def _get_params(t, args):
+        """Get physical parameters at time t."""
+        number_density = args["number_density"]
+        temperature = args["temperature"]
+        cr_rate = args["cr_rate"]
+        fuv_field = args["fuv_field"]
+        visual_extinction = args["visual_extinction"]
+
+        needs_interp = (
+            number_density.shape[0] > 1
+            or temperature.shape[0] > 1
+            or cr_rate.shape[0] > 1
+            or fuv_field.shape[0] > 1
+            or visual_extinction.shape[0] > 1
+        )
+        if not needs_interp:
+            return (
+                number_density[0],
+                temperature[0],
+                cr_rate[0],
+                fuv_field[0],
+                visual_extinction[0],
+            )
+
+        left, weight = compute_interp_left_and_weight(t, args["time_grid"])
+
+        def _maybe_interp(param):
+            """Interpolate a parameter if needed."""
+            if param.shape[0] == 1:
+                return param[0]
+            return interpolate_param_with_left_and_weight(param, left, weight)
+
+        return (
+            _maybe_interp(number_density),
+            _maybe_interp(temperature),
+            _maybe_interp(cr_rate),
+            _maybe_interp(fuv_field),
+            _maybe_interp(visual_extinction),
+        )
 
     # Define ODE term with parameter interpolation
     ode_term = dx.ODETerm(
         lambda t, y, args: jnetwork(
             t,
             y,
-            _get_param(t, args["number_density"], args["time_grid"]),
-            _get_param(t, args["temperature"], args["time_grid"]),
-            _get_param(t, args["cr_rate"], args["time_grid"]),
-            _get_param(t, args["fuv_field"], args["time_grid"]),
-            _get_param(t, args["visual_extinction"], args["time_grid"]),
+            *_get_params(t, args),
         )
     )
 
