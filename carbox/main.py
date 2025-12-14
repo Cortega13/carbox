@@ -13,16 +13,17 @@ From Python:
         temperature=50.0,
         t_end=1e6,
     )
-    run_simulation('data/network.csv', config, format_type='latent_tgas')
+    run_simulation('network_files/network.csv', config, format_type='latent_tgas')
 
 From command line:
-    python -m carbox.main --input data/network.csv --config config.yaml
+    python -m carbox.main --input network_files/network.csv --config config.yaml
 """
 
 import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import jax
 
@@ -39,7 +40,7 @@ from .output import (
     save_reaction_rates,
     save_summary_report,
 )
-from .parsers import parse_chemical_network
+from .parsers import NetworkNames, parse_chemical_network
 from .solver import compute_derivatives, compute_reaction_rates, solve_network
 
 # JAX configuration for numerical stability
@@ -50,9 +51,9 @@ jax.config.update("jax_debug_nans", True)
 def run_simulation(
     network_file: str,
     config: SimulationConfig,
-    format_type: str | None = None,
+    format_type: NetworkNames | None = None,
     verbose: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Run a chemical kinetics simulation.
 
     Workflow:
@@ -86,7 +87,7 @@ def run_simulation(
     Examples:
     --------
     >>> config = SimulationConfig(number_density=1e4, t_end=1e5)
-    >>> results = run_simulation("data/network.csv", config)
+    >>> results = run_simulation("network_files/network.csv", config)
     """
     start_time = datetime.now()
 
@@ -211,7 +212,7 @@ def run_simulation(
     }
 
 
-def main():
+def main() -> None:
     """Command-line interface for Carbox."""
     parser = argparse.ArgumentParser(
         description="Carbox: JAX-accelerated chemical kinetics simulation",
@@ -219,16 +220,16 @@ def main():
         epilog="""
 Examples:
   # Run with default parameters
-  python -m carbox.main --input data/network.csv
+  python -m carbox.main --input network_files/network.csv
 
   # Use configuration file
-  python -m carbox.main --input data/network.csv --config my_config.yaml
+  python -m carbox.main --input network_files/network.csv --config my_config.yaml
 
   # Specify format explicitly
-  python -m carbox.main --input data/network.csv --format umist
+  python -m carbox.main --input network_files/network.csv --format umist
 
   # Custom output directory and run name
-  python -m carbox.main --input data/network.csv --output results/ --name test_run
+  python -m carbox.main --input network_files/network.csv --output results/ --name test_run
         """,
     )
 

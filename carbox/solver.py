@@ -14,7 +14,7 @@ from .network import JNetwork, Network
 SPY = 3600.0 * 24 * 365.0
 
 
-def get_solver(solver_name: str):
+def get_solver(solver_name: str) -> dx.AbstractSolver:
     """Get Diffrax solver instance from name.
 
     Parameters

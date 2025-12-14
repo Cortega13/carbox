@@ -7,7 +7,19 @@ from .reactions import JReactionRateTerm, Reaction
 
 
 class FUVReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha):
+    """Reaction driven by Far-UV radiation.
+
+    Rate equation:
+        k = alpha * uv_field
+    """
+
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
 
@@ -17,19 +29,32 @@ class FUVReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return self.alpha * uv_field
 
         return FUVReactionRateTerm(jnp.array(self.alpha))
 
 
 class H2FormReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, gas2dust):
+    """H2 Formation reaction.
+
+    Rate equation:
+        k = 100.0 * gas2dust * alpha
+    """
+
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        gas2dust: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.gas2dust = gas2dust
@@ -41,12 +66,12 @@ class H2FormReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return 100.0 * self.gas2dust * self.alpha
 
         return H2ReactionRateTerm(jnp.array(self.alpha), jnp.array(self.gas2dust))

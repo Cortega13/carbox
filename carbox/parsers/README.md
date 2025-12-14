@@ -14,7 +14,7 @@ The Carbox unified parser provides a single interface for parsing multiple chemi
 - **Example usage**:
 ```python
 from carbox.parsers import parse_chemical_network
-network = parse_chemical_network('data/uclchem_rates.csv', 'uclchem')
+network = parse_chemical_network('network_files/uclchem_rates.csv', 'uclchem')
 ```
 
 ### UMIST Format
@@ -23,7 +23,7 @@ network = parse_chemical_network('data/uclchem_rates.csv', 'uclchem')
 - **Special features**: Detailed temperature ranges and uncertainty data
 - **Example usage**:
 ```python
-network = parse_chemical_network('data/umist22.csv', 'umist')
+network = parse_chemical_network('network_files/umist22.csv', 'umist')
 ```
 
 ### LATENT-TGAS Format
@@ -32,7 +32,7 @@ network = parse_chemical_network('data/umist22.csv', 'umist')
 - **Special features**: Machine learning compatible format
 - **Example usage**:
 ```python
-network = parse_chemical_network('data/simple_latent_tgas.csv', 'latent_tgas')
+network = parse_chemical_network('network_files/simple_latent_tgas.csv', 'latent_tgas')
 ```
 
 ## Quick Start

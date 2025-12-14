@@ -7,7 +7,21 @@ from . import JReactionRateTerm, Reaction
 
 
 class KAReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    """KIDA/UMIST Arrhenius Reaction.
+
+    Rate equation:
+        k = alpha * (T / 300)^beta * exp(-gamma / T)
+    """
+
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -21,12 +35,12 @@ class KAReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 # α(T/300K​)^βexp(−γ/T)
                 return (
                     self.alpha
@@ -40,8 +54,21 @@ class KAReaction(Reaction):
 
 
 class KAFixedReaction(Reaction):
-    def __init__(
-        self, reaction_type, reactants, products, alpha, beta, gamma, temperature
+    """Fixed Temperature Arrhenius Reaction.
+
+    Rate equation:
+        k = alpha * (T_fixed / 300)^beta * exp(-gamma / T_fixed)
+    """
+
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+        temperature: float,
     ):
         super().__init__(reaction_type, reactants, products)
         self.reaction_coeff = (
@@ -52,23 +79,35 @@ class KAFixedReaction(Reaction):
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class KAFixedReactionRateTerm(JReactionRateTerm):
-            reaction_coeff: float
+            reaction_coeff: Array
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return self.reaction_coeff
 
         return KAFixedReactionRateTerm(jnp.array(self.reaction_coeff))
 
 
 class CRPReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha):
+    """Cosmic Ray Proton Reaction.
+
+    Rate equation:
+        k = alpha * cr_rate
+    """
+
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
 
@@ -78,19 +117,34 @@ class CRPReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return cr_rate * self.alpha
 
         return CRPReactionRateTerm(jnp.array(self.alpha))
 
 
 class CRPhotoReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    """Cosmic Ray induced Photo-reaction.
+
+    Rate equation:
+        k = 1.31e-17 * cr_rate * (T / 300)^beta * gamma / (1 - omega)
+        where omega = 0.5 (grain albedo)
+    """
+
+    def __init__(  # noqa
+        self,
+        reaction_type: str,
+        reactants: list[str],
+        products: list[str],
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -104,12 +158,12 @@ class CRPhotoReaction(Reaction):
 
             def __call__(
                 self,
-                temperature,
-                cr_rate,
-                uv_field,
-                visual_extinction,
-                abundance_vector,
-            ):
+                temperature: Array,
+                cr_rate: Array,
+                uv_field: Array,
+                visual_extinction: Array,
+                abundance_vector: Array,
+            ) -> Array:
                 return (
                     1.31e-17
                     * cr_rate

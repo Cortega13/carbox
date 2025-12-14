@@ -133,14 +133,14 @@ SCO_GRID = jnp.array(
 
 
 @partial(jax.jit, static_argnums=())
-def xlambda(wavelength: float) -> Array:
+def xlambda(wavelength: Array | float) -> Array:
     """Ratio of optical depth at wavelength to visual (Savage & Mathis 1979)."""
     lambda_clipped = jnp.clip(wavelength, LAMBDA_GRID[0], LAMBDA_GRID[-1])
     return jnp.interp(lambda_clipped, LAMBDA_GRID, XLAMBDA_GRID)
 
 
 @partial(jax.jit, static_argnums=())
-def scatter(wavelength: float, av: float) -> Array:
+def scatter(wavelength: Array | float, av: float) -> Array:
     """Dust scattering attenuation (Wagenblast & Hartquist 1989, g=0.8, ω=0.3)."""
     tv = av / 1.086
     tl = tv * xlambda(wavelength)
@@ -163,27 +163,34 @@ def h2_self_shielding(nh2: float, doppler_width: float, rad_width: float) -> Arr
 
     taud = fpara * nh2 * 1.5e-2 * fosc / (doppler_width + 1e-30)
 
-    sj = jnp.where(
-        taud == 0.0,
-        1.0,
+    # Avoid division by zero in power laws (JAX evaluates all branches)
+    taud_safe = jnp.where(taud == 0.0, 1.0, taud)
+
+    sj = jnp.array(
         jnp.where(
-            taud < 2.0,
-            jnp.exp(-0.6666667 * taud),
+            taud == 0.0,
+            1.0,
             jnp.where(
-                taud < 10.0,
-                0.638 * taud ** (-1.25),
+                taud < 2.0,
+                jnp.exp(-0.6666667 * taud),
                 jnp.where(
-                    taud < 100.0, 0.505 * taud ** (-1.15), 0.344 * taud ** (-1.0667)
+                    taud < 10.0,
+                    0.638 * taud_safe ** (-1.25),
+                    jnp.where(
+                        taud < 100.0,
+                        0.505 * taud_safe ** (-1.15),
+                        0.344 * taud_safe ** (-1.0667),
+                    ),
                 ),
             ),
-        ),
+        )
     )
 
     r = rad_width / (1.7724539 * doppler_width + 1e-30)
     t = 3.02 * (r * 1.0e3) ** (-0.064)
     u = jnp.sqrt(taud * r) / t
     sr = r / (t * jnp.sqrt(0.78539816 + u**2))
-    sr = jnp.where(rad_width == 0.0, 0.0, sr)
+    sr = jnp.array(jnp.where(rad_width == 0.0, 0.0, sr))
 
     return sj + sr
 
@@ -191,7 +198,7 @@ def h2_self_shielding(nh2: float, doppler_width: float, rad_width: float) -> Arr
 @partial(jax.jit, static_argnums=())
 def h2_photo_diss_rate(
     nh2: float, rad_field: float, av: float, turb_vel: float
-) -> float:
+) -> Array:
     """H2 photodissociation rate with self-shielding."""
     base_rate = 5.18e-11
     xl = 1000.0
@@ -236,7 +243,6 @@ def co_self_shielding(nh2: float, nco: float) -> Array:
         SCO_GRID,
         method="linear",
         bounds_error=False,
-        fill_value=None,
     )
 
     log_ssf = interp(jnp.array([lognco_clip, lognh2_clip]))
@@ -244,7 +250,7 @@ def co_self_shielding(nh2: float, nco: float) -> Array:
 
 
 @partial(jax.jit, static_argnums=())
-def co_photo_diss_rate(nh2: float, nco: float, rad_field: float, av: float) -> float:
+def co_photo_diss_rate(nh2: float, nco: float, rad_field: float, av: float) -> Array:
     """CO photodissociation rate with self-shielding."""
     ssf = co_self_shielding(nh2, nco)
     lambda_bar = lbar(nco, nh2)
@@ -257,7 +263,7 @@ def co_photo_diss_rate(nh2: float, nco: float, rad_field: float, av: float) -> f
 def c_ionization_rate(
     alpha: float,
     gamma: float,
-    gas_temp: float,
+    gas_temp: float | Array,
     nc: float,
     nh2: float,
     av: float,

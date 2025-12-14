@@ -100,7 +100,7 @@ class SimulationConfig:
     max_steps: int = 4096
 
     # Output settings
-    output_dir: str = "output"
+    output_dir: str = "outputs"
     save_abundances: bool = True
     save_derivatives: bool = False
     save_rates: bool = False
@@ -120,12 +120,12 @@ class SimulationConfig:
             data = json.load(f)
         return cls(**data)
 
-    def to_yaml(self, filepath: str):
+    def to_yaml(self, filepath: str) -> None:
         """Save configuration to YAML file."""
         with open(filepath, "w") as f:
             yaml.dump(self.__dict__, f, default_flow_style=False)
 
-    def to_json(self, filepath: str):
+    def to_json(self, filepath: str) -> None:
         """Save configuration to JSON file."""
         with open(filepath, "w") as f:
             json.dump(self.__dict__, f, indent=2)
@@ -156,7 +156,7 @@ class SimulationConfig:
 
         return av
 
-    def get_physical_params_jax(self):
+    def get_physical_params_jax(self) -> dict[str, jnp.ndarray]:
         """Get JAX arrays for physical parameters (for solver args)."""
         # Compute Av (either fixed or self-consistent)
         visual_extinction = self.compute_visual_extinction()
@@ -168,7 +168,7 @@ class SimulationConfig:
             "visual_extinction": jnp.array(visual_extinction),
         }
 
-    def validate(self):
+    def validate(self) -> None:
         """Basic validation of parameter ranges."""
         assert 1e2 <= self.number_density <= 1e8, "number_density out of physical range"
         assert 10 <= self.temperature <= 1e5, "temperature out of range"

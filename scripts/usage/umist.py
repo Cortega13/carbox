@@ -16,7 +16,7 @@ config = SimulationConfig(
 )
 
 results = run_simulation(
-    network_file="data/rate22_final.rates",
+    network_file="network_files/rate22_final.rates",
     config=config,
     format_type=NetworkNames.umist,
 )
