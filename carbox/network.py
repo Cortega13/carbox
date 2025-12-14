@@ -230,11 +230,11 @@ class Network:
         import networkx as nx
 
         # Create a directed graph
-        G = nx.DiGraph()
+        graph = nx.DiGraph()
 
         # Add all species as nodes
         for species in self.species:
-            G.add_node(species.name, species=species)
+            graph.add_node(species.name, species=species)
 
         # Process each reaction (column in incidence matrix)
         for j, reaction in enumerate(self.reactions):
@@ -251,14 +251,14 @@ class Network:
             for reactant in reactants:
                 for product in products:
                     # Check if edge already exists
-                    if G.has_edge(reactant, product):
+                    if graph.has_edge(reactant, product):
                         # Append to existing reactions list
-                        G[reactant][product]["reactions"].append(
+                        graph[reactant][product]["reactions"].append(
                             {"index": j, "reaction": reaction, "label": reaction_label}
                         )
                     else:
                         # Create new edge with reactions list
-                        G.add_edge(
+                        graph.add_edge(
                             reactant,
                             product,
                             reactions=[
@@ -270,7 +270,7 @@ class Network:
                             ],
                         )
 
-        return G
+        return graph
 
     def get_ode(self) -> JNetwork:
         """Returns the jit compiled chemical network."""
@@ -292,8 +292,10 @@ class Network:
         )
 
         if self.vectorize_reactions:
-            reaction_groups = {}
-            non_vectorizable_reactions = []
+            reaction_groups: dict[str, list[Reaction]] = {}
+            non_vectorizable_reactions: list[
+                H2PhotoDissReaction | COPhotoDissReaction | CIonizationReaction
+            ] = []
 
             for reaction in self.reactions:
                 # Skip vectorization for special photoreactions

@@ -67,15 +67,6 @@ def save_abundances(
 
     species_names = [s.name for s in network.species]
 
-    # Calculate hydrogen nuclei density for each timestep
-    # n_{H,nuclei} = 2*n(H2) + n(H)
-    h2_idx = None
-    h_idx = None
-    for i, name in enumerate(species_names):
-        if name == "H2":
-            h2_idx = i
-        elif name == "H":
-            h_idx = i
     """
     if h2_idx is not None and h_idx is not None:
         n_h_nuclei = 2 * solution.ys[:, h2_idx] + solution.ys[:, h_idx]

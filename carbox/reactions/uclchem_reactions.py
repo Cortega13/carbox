@@ -216,7 +216,13 @@ class UCLCHEMH2FormReaction(Reaction):
 
 
 class UCLCHEMPhotonReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    """UCLCHEM Photon reaction.
+
+    Rate equation:
+        k = alpha * exp(-gamma * visual_extinction) * uv_field / 1.7
+    """
+
+    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -255,7 +261,7 @@ class IonPol1Reaction(Reaction):
     k = α * β * (0.62 + 0.4767 * γ * sqrt(300/T))
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -292,7 +298,7 @@ class IonPol2Reaction(Reaction):
     k = α * β * (1.0 + 0.0967 * γ * sqrt(300/T) + γ² * 300/(10.526 * T))
     """
 
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -327,7 +333,7 @@ class GARReaction(Reaction):
     Simplified implementation for gas-phase comparison
     """
 
-    def __init__(self, reaction_type, reactants, products, *args):
+    def __init__(self, reaction_type, reactants, products, *args):  # noqa
         super().__init__(reaction_type, reactants, products)
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
@@ -352,15 +358,15 @@ class H2PhotoDissReaction(Reaction):
     Requires cloud geometry and H2 abundance from state vector.
     """
 
-    def __init__(
+    def __init__(  # noqa
         self,
         reaction_type,
         reactants,
         products,
+        h2_species_index: int | None,
         cloud_radius_pc=1.0,
         number_density=1e4,
         turb_vel=1e5,
-        h2_species_index=None,
     ):
         super().__init__(reaction_type, reactants, products)
         self.cloud_radius_pc = cloud_radius_pc
@@ -369,7 +375,10 @@ class H2PhotoDissReaction(Reaction):
         self.h2_species_index = h2_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .reactions.uclchem_photoreactions import (
+        if self.h2_species_index is None:
+            raise ValueError("h2_species_index must be set")
+
+        from .uclchem_photoreactions import (
             compute_column_density,
             h2_photo_diss_rate,
         )
@@ -407,7 +416,7 @@ class COPhotoDissReaction(Reaction):
     Requires both H2 and CO abundances from state vector.
     """
 
-    def __init__(
+    def __init__(  # noqa
         self,
         reaction_type,
         reactants,
@@ -424,7 +433,10 @@ class COPhotoDissReaction(Reaction):
         self.co_species_index = co_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .reactions.uclchem_photoreactions import (
+        if self.h2_species_index is None or self.co_species_index is None:
+            raise ValueError("Species indices must be set")
+
+        from .uclchem_photoreactions import (
             co_photo_diss_rate,
             compute_column_density,
         )
@@ -466,7 +478,7 @@ class CIonizationReaction(Reaction):
     Uses UCLCHEM's treatment with dust and gas-phase shielding.
     """
 
-    def __init__(
+    def __init__(  # noqa
         self,
         reaction_type,
         reactants,
@@ -487,7 +499,10 @@ class CIonizationReaction(Reaction):
         self.h2_species_index = h2_species_index
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
-        from .reactions.uclchem_photoreactions import (
+        if self.c_species_index is None or self.h2_species_index is None:
+            raise ValueError("Species indices must be set")
+
+        from .uclchem_photoreactions import (
             c_ionization_rate,
             compute_column_density,
         )

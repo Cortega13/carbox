@@ -7,7 +7,13 @@ from . import JReactionRateTerm, Reaction
 
 
 class UMISTPhotoReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    """UMIST Photo-reaction.
+
+    Rate equation:
+        k = alpha * (uv_field / 1.7) * exp(-gamma * visual_extinction)
+    """
+
+    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -16,7 +22,6 @@ class UMISTPhotoReaction(Reaction):
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class PHReactionRateTerm(JReactionRateTerm):
             alpha: Array
-            beta: Array
             gamma: Array
 
             def __call__(
@@ -27,8 +32,10 @@ class UMISTPhotoReaction(Reaction):
                 visual_extinction,
                 abundance_vector,
             ):
-                return self.alpha * jnp.exp(-self.gamma * visual_extinction * 4.65)
+                return (
+                    self.alpha
+                    * (uv_field / 1.7)
+                    * jnp.exp(-self.gamma * visual_extinction)
+                )
 
-        return PHReactionRateTerm(
-            jnp.array(self.alpha), jnp.array(self.beta), jnp.array(self.gamma)
-        )
+        return PHReactionRateTerm(jnp.array(self.alpha), jnp.array(self.gamma))

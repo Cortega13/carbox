@@ -7,7 +7,13 @@ from . import JReactionRateTerm, Reaction
 
 
 class KAReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    """KIDA/UMIST Arrhenius Reaction.
+
+    Rate equation:
+        k = alpha * (T / 300)^beta * exp(-gamma / T)
+    """
+
+    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta
@@ -40,7 +46,13 @@ class KAReaction(Reaction):
 
 
 class KAFixedReaction(Reaction):
-    def __init__(
+    """Fixed Temperature Arrhenius Reaction.
+
+    Rate equation:
+        k = alpha * (T_fixed / 300)^beta * exp(-gamma / T_fixed)
+    """
+
+    def __init__(  # noqa
         self, reaction_type, reactants, products, alpha, beta, gamma, temperature
     ):
         super().__init__(reaction_type, reactants, products)
@@ -52,7 +64,7 @@ class KAFixedReaction(Reaction):
 
     def _reaction_rate_factory(self) -> JReactionRateTerm:
         class KAFixedReactionRateTerm(JReactionRateTerm):
-            reaction_coeff: float
+            reaction_coeff: Array
 
             def __call__(
                 self,
@@ -68,7 +80,13 @@ class KAFixedReaction(Reaction):
 
 
 class CRPReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha):
+    """Cosmic Ray Proton Reaction.
+
+    Rate equation:
+        k = alpha * cr_rate
+    """
+
+    def __init__(self, reaction_type, reactants, products, alpha):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
 
@@ -90,7 +108,14 @@ class CRPReaction(Reaction):
 
 
 class CRPhotoReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):
+    """Cosmic Ray induced Photo-reaction.
+
+    Rate equation:
+        k = 1.31e-17 * cr_rate * (T / 300)^beta * gamma / (1 - omega)
+        where omega = 0.5 (grain albedo)
+    """
+
+    def __init__(self, reaction_type, reactants, products, alpha, beta, gamma):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.beta = beta

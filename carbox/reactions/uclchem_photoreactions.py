@@ -163,27 +163,34 @@ def h2_self_shielding(nh2: float, doppler_width: float, rad_width: float) -> Arr
 
     taud = fpara * nh2 * 1.5e-2 * fosc / (doppler_width + 1e-30)
 
-    sj = jnp.where(
-        taud == 0.0,
-        1.0,
+    # Avoid division by zero in power laws (JAX evaluates all branches)
+    taud_safe = jnp.where(taud == 0.0, 1.0, taud)
+
+    sj = jnp.array(
         jnp.where(
-            taud < 2.0,
-            jnp.exp(-0.6666667 * taud),
+            taud == 0.0,
+            1.0,
             jnp.where(
-                taud < 10.0,
-                0.638 * taud ** (-1.25),
+                taud < 2.0,
+                jnp.exp(-0.6666667 * taud),
                 jnp.where(
-                    taud < 100.0, 0.505 * taud ** (-1.15), 0.344 * taud ** (-1.0667)
+                    taud < 10.0,
+                    0.638 * taud_safe ** (-1.25),
+                    jnp.where(
+                        taud < 100.0,
+                        0.505 * taud_safe ** (-1.15),
+                        0.344 * taud_safe ** (-1.0667),
+                    ),
                 ),
             ),
-        ),
+        )
     )
 
     r = rad_width / (1.7724539 * doppler_width + 1e-30)
     t = 3.02 * (r * 1.0e3) ** (-0.064)
     u = jnp.sqrt(taud * r) / t
     sr = r / (t * jnp.sqrt(0.78539816 + u**2))
-    sr = jnp.where(rad_width == 0.0, 0.0, sr)
+    sr = jnp.array(jnp.where(rad_width == 0.0, 0.0, sr))
 
     return sj + sr
 
@@ -236,7 +243,6 @@ def co_self_shielding(nh2: float, nco: float) -> Array:
         SCO_GRID,
         method="linear",
         bounds_error=False,
-        fill_value=None,
     )
 
     log_ssf = interp(jnp.array([lognco_clip, lognh2_clip]))

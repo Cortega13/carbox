@@ -7,7 +7,13 @@ from .reactions import JReactionRateTerm, Reaction
 
 
 class FUVReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha):
+    """Reaction driven by Far-UV radiation.
+
+    Rate equation:
+        k = alpha * uv_field
+    """
+
+    def __init__(self, reaction_type, reactants, products, alpha):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
 
@@ -29,7 +35,13 @@ class FUVReaction(Reaction):
 
 
 class H2FormReaction(Reaction):
-    def __init__(self, reaction_type, reactants, products, alpha, gas2dust):
+    """H2 Formation reaction.
+
+    Rate equation:
+        k = 100.0 * gas2dust * alpha
+    """
+
+    def __init__(self, reaction_type, reactants, products, alpha, gas2dust):  # noqa
         super().__init__(reaction_type, reactants, products)
         self.alpha = alpha
         self.gas2dust = gas2dust
