@@ -94,9 +94,6 @@ class SimulationConfig:
     abundance_floor: float = 1e-30
 
     # Integration parameters
-    t_start: float = 0.0
-    t_end: float = 3.154e13  # seconds (approximately 1 million years)
-    n_snapshots: int = 1000
     solver: str = "kvaerno5"
     atol: float = 1e-18
     rtol: float = 1e-12
@@ -179,22 +176,23 @@ class SimulationConfig:
         """Basic validation of parameter ranges."""
         # Validate lengths
         n_points = len(self.physics_t)
-        if n_points > 1:
-            assert len(self.number_density) == n_points, (
-                "number_density length mismatch"
-            )
-            assert len(self.temperature) == n_points, "temperature length mismatch"
-            assert len(self.cr_rate) == n_points, "cr_rate length mismatch"
-            assert len(self.fuv_field) == n_points, "fuv_field length mismatch"
-            assert len(self.visual_extinction) == n_points, (
-                "visual_extinction length mismatch"
-            )
+        assert n_points >= 2, "physics_t must have at least 2 points"
+        assert self.physics_t[0] == 0.0, "physics_t must start at 0.0"
 
-        # Validate values (using first element or min/max)
-        # assert 1e2 <= min(self.number_density) and max(self.number_density) <= 1e8, "number_density out of physical range"
-        # assert 10 <= min(self.temperature) and max(self.temperature) <= 1e5, "temperature out of range"
+        # Check for strictly increasing time
+        physics_t_arr = jnp.array(self.physics_t)
+        assert jnp.all(jnp.diff(physics_t_arr) > 0), (
+            "physics_t must be strictly increasing"
+        )
 
-        assert self.t_end > self.t_start, "t_end must be > t_start"
+        assert len(self.number_density) == n_points, "number_density length mismatch"
+        assert len(self.temperature) == n_points, "temperature length mismatch"
+        assert len(self.cr_rate) == n_points, "cr_rate length mismatch"
+        assert len(self.fuv_field) == n_points, "fuv_field length mismatch"
+        assert len(self.visual_extinction) == n_points, (
+            "visual_extinction length mismatch"
+        )
+
         assert self.solver in ["dopri5", "kvaerno5", "tsit5"], (
             f"Unknown solver: {self.solver}"
         )

@@ -43,7 +43,7 @@ def get_solver(solver_name: str) -> dx.AbstractSolver:
     return solvers[solver_name.lower()]()
 
 
-def build_physics_path(config: SimulationConfig) -> dx.CubicInterpolation:
+def build_physics_interpolation(config: SimulationConfig) -> dx.CubicInterpolation:
     """Build interpolated path for time-varying physical parameters.
 
     Parameters
@@ -66,15 +66,7 @@ def build_physics_path(config: SimulationConfig) -> dx.CubicInterpolation:
         "visual_extinction",
         "number_density",
     ]
-
-    # Handle constant parameters by extending to simulation time range
-    if len(physics_t) == 1:
-        physics_t = jnp.array([config.t_start, config.t_end])
-        param_arrays = [
-            jnp.array([params[name][0], params[name][0]]) for name in param_names
-        ]
-    else:
-        param_arrays = [params[name] for name in param_names]
+    param_arrays = [params[name] for name in param_names]
 
     # Create cubic interpolation path (time in seconds)
     physics_data = jnp.stack(param_arrays, axis=-1)
@@ -200,31 +192,15 @@ def solve_network(
     - JIT compiled for performance (first call compiles)
     - Stiff solver (Kvaerno5) recommended for chemistry
     """
-    # Build interpolation path for time-varying physical parameters
-    physics_path = build_physics_path(config)
+    physics_path = build_physics_interpolation(config)
 
-    # Time sampling (log-spaced in seconds)
-    # Create log-spaced times with manual 0th timestep
-    if config.t_start <= 0:
-        # Start from very small value for log spacing (excluding t=0)
-        # This captures early chemistry evolution
-        t_start_log = 1e-6  # 1 microsecond
-        t_log = jnp.logspace(
-            jnp.log10(t_start_log), jnp.log10(config.t_end), config.n_snapshots - 1
-        )
-        # Prepend t=0 as the 0th timestep
-        t_snapshots = jnp.concatenate([jnp.array([0.0]), t_log])
-    else:
-        # If t_start > 0, still include it as the 0th timestep
-        t_log = jnp.logspace(
-            jnp.log10(config.t_start), jnp.log10(config.t_end), config.n_snapshots - 1
-        )
-        t_snapshots = jnp.concatenate([jnp.array([config.t_start]), t_log])
+    # Use physics_t directly as evaluation points
+    t_eval = jnp.array(config.physics_t)
 
     return solve_network_core(
         jnetwork=jnetwork,
         y0=y0,
-        t_eval=t_snapshots,
+        t_eval=t_eval,
         physics_path=physics_path,
         solver_name=config.solver,
         atol=config.atol,
@@ -252,7 +228,7 @@ def compute_derivatives(
     Returns:
     -------
     derivatives : jnp.ndarray
-        Time derivatives [n_snapshots, n_species]
+        Time derivatives [n_physics_t, n_species]
 
     Notes:
     -----
@@ -262,13 +238,11 @@ def compute_derivatives(
     if not (solution.ys and solution.ts):
         raise Exception("Missing solution.ys or solution.ts.")
 
-    # Reconstruct physics path
-    physics_path = build_physics_path(config)
+    physics_path = build_physics_interpolation(config)
 
     dy = jnp.zeros_like(solution.ys)
 
     for i, (t_sec, y_frac) in enumerate(zip(solution.ts, solution.ys, strict=False)):
-        # Evaluate params (physics_path expects seconds)
         temp, cr, fuv, av, density = physics_path.evaluate(t_sec)
 
         # Convert fractional to absolute
@@ -312,7 +286,7 @@ def compute_reaction_rates(
     Returns:
     -------
     rates : jnp.ndarray
-        Reaction rates [n_snapshots, n_reactions]
+        Reaction rates [n_physics_t, n_reactions]
 
     Notes:
     -----
@@ -322,15 +296,13 @@ def compute_reaction_rates(
     if not (solution.ys and solution.ts):
         raise Exception("Missing solution.ys or solution.ts.")
 
-    # Reconstruct physics path
-    physics_path = build_physics_path(config)
+    physics_path = build_physics_interpolation(config)
 
     n_snapshots = len(solution.ts)
     n_reactions = len(network.reactions)
     rates = jnp.zeros((n_snapshots, n_reactions))
 
     for i in range(n_snapshots):
-        # Evaluate params (physics_path expects seconds)
         temp, cr, fuv, av, density = physics_path.evaluate(solution.ts[i])
 
         # Fractional abundances from solution

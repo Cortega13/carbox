@@ -263,9 +263,8 @@ def save_metadata(
                 "base_av": config.base_av,
             },
             "integration": {
-                "t_start": config.t_start,
-                "t_end": config.t_end,
-                "n_snapshots": config.n_snapshots,
+                "physics_t": config.physics_t,
+                "n_points": len(config.physics_t),
                 "solver": config.solver,
                 "atol": config.atol,
                 "rtol": config.rtol,
@@ -340,10 +339,12 @@ def save_summary_report(
     lines.append("")
 
     lines.append("Integration:")
-    lines.append(
-        f"  Time range: {config.t_start / SPY:.2e} - {config.t_end / SPY:.2e} years"
-    )
-    lines.append(f"  Snapshots: {config.n_snapshots}")
+    t_start = config.physics_t[0]
+    t_end = config.physics_t[-1]
+    lines.append(f"  Time range: {t_start / SPY:.2e} - {t_end / SPY:.2e} years")
+    physics_t_years = [t / SPY for t in config.physics_t]
+    lines.append(f"  Physics time (years): {physics_t_years}")
+    lines.append(f"  Snapshots: {len(config.physics_t)}")
     lines.append(f"  Solver: {config.solver}")
     lines.append(f"  Tolerances: atol={config.atol:.2e}, rtol={config.rtol:.2e}")
     lines.append("")

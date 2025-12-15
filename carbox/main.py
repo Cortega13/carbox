@@ -87,7 +87,7 @@ def run_simulation(
 
     Examples:
     --------
-    >>> config = SimulationConfig(number_density=1e4, t_end=1e5)
+    >>> config = SimulationConfig(number_density=1e4, physics_t=[0.0, 1e5])
     >>> results = run_simulation("network_files/network.csv", config)
     """
     start_time = datetime.now()
@@ -143,10 +143,9 @@ def run_simulation(
     # Step 4: Solve ODE
     if verbose:
         print(f"Solving ODE system with {config.solver}...")
-        print(
-            f"  Time range: {config.t_start / SPY:.2e} - {config.t_end / SPY:.2e} years"
-        )
-        print(f"  Snapshots: {config.n_snapshots}")
+        physics_t_years = [t / SPY for t in config.physics_t]
+        print(f"  Interpolation points and times (years): {physics_t_years}")
+        print(f"  Snapshots: {len(config.physics_t)}")
         print("  Compiling solver (first call)...")
 
     solve_start = datetime.now()
