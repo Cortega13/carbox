@@ -143,13 +143,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("notebooks/analysis/plots"),
+        default=Path("scripts/analysis/plots"),
         help="Directory to save plots",
     )
     parser.add_argument(
         "--species-count",
         type=int,
-        default=20,
+        default=40,
         help="Number of top species to plot",
     )
     return parser.parse_args()
