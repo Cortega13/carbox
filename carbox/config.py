@@ -95,9 +95,9 @@ class SimulationConfig:
 
     # Integration parameters
     solver: str = "kvaerno5"
-    atol: float = 1e-18
-    rtol: float = 1e-12
-    max_steps: int = 4096
+    atol: float = 1e-12
+    rtol: float = 1e-6
+    max_steps: int = 20000
 
     # Output settings
     output_dir: str = "outputs"
@@ -149,7 +149,6 @@ class SimulationConfig:
         cloud_radius_cm = self.cloud_radius_pc * pc_to_cm
 
         # Column density: N_H = n_H * L [cm^-2]
-        # Handle list of number densities
         number_density_arr = jnp.array(self.number_density)
         column_density = cloud_radius_cm * number_density_arr
 
@@ -160,7 +159,6 @@ class SimulationConfig:
 
     def get_physical_params_jax(self) -> dict[str, jnp.ndarray]:
         """Get JAX arrays for physical parameters (for solver args)."""
-        # Compute Av (either fixed or self-consistent)
         visual_extinction = self.compute_visual_extinction()
 
         return {
@@ -174,7 +172,6 @@ class SimulationConfig:
 
     def validate(self) -> None:
         """Basic validation of parameter ranges."""
-        # Validate lengths
         n_points = len(self.physics_t)
         assert n_points >= 2, "physics_t must have at least 2 points"
         assert self.physics_t[0] == 0.0, "physics_t must start at 0.0"

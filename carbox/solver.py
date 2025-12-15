@@ -3,7 +3,10 @@
 Wraps Diffrax solvers with appropriate settings for stiff chemistry ODEs.
 """
 
+from typing import Any
+
 import diffrax as dx
+import jax
 import jax.numpy as jnp
 
 from .config import SimulationConfig
@@ -74,7 +77,8 @@ def build_physics_interpolation(config: SimulationConfig) -> dx.CubicInterpolati
     return dx.CubicInterpolation(physics_t, coeffs)
 
 
-def solve_network_core(
+@jax.jit(static_argnames=["solver_name", "max_steps"])
+def jsolve_network(
     jnetwork: JNetwork,
     y0: jnp.ndarray,
     t_eval: jnp.ndarray,
@@ -112,7 +116,7 @@ def solve_network_core(
         Integration results
     """
 
-    def ode_func(t, y, args):
+    def ode_func(t: Any, y: jax.Array, args: dx.AbstractPath) -> jax.Array:
         """Compute time derivatives of fractional abundances.
 
         Process:
@@ -123,9 +127,9 @@ def solve_network_core(
 
         Ignores dilution effects from changing number density.
         """
-        # Get interpolated parameters (physics_path expects seconds)
-        params = args.evaluate(t)
-        temperature, cr_rate, fuv_field, visual_extinction, number_density = params
+        temperature, cr_rate, fuv_field, visual_extinction, number_density = (
+            args.evaluate(t)
+        )
 
         # Fractional to absolute: n_i = X_i * n
         y_abs = y * number_density
@@ -138,13 +142,10 @@ def solve_network_core(
         # Absolute to fractional: dX_i/dt = (1/n) * dn_i/dt
         return dy_abs_dt / number_density
 
-    # Define ODE term
     ode_term = dx.ODETerm(ode_func)
 
-    # Get solver
     solver = get_solver(solver_name)
 
-    # Solve
     solution = dx.diffeqsolve(
         ode_term,
         solver,
@@ -152,7 +153,7 @@ def solve_network_core(
         t1=t_eval[-1],
         dt0=1e-6,  # Initial timestep [s]
         y0=y0,
-        stepsize_controller=dx.PIDController(atol=atol, rtol=rtol),
+        stepsize_controller=dx.PIDController(atol=atol, rtol=rtol, factormax=1e3),
         saveat=dx.SaveAt(ts=t_eval),
         args=physics_path,
         max_steps=max_steps,
@@ -194,10 +195,9 @@ def solve_network(
     """
     physics_path = build_physics_interpolation(config)
 
-    # Use physics_t directly as evaluation points
     t_eval = jnp.array(config.physics_t)
 
-    return solve_network_core(
+    return jsolve_network(
         jnetwork=jnetwork,
         y0=y0,
         t_eval=t_eval,
