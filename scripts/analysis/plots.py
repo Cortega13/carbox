@@ -58,7 +58,7 @@ def plot_physical(ax, tracer: TracerData) -> None:
         ("av", "Av"),
         ("rad_field", "Rad Field"),
     ]:
-        ax.plot(tracer.time, safe_log(tracer.physical[key]), label=label)
+        ax.plot(tracer.time[1:], safe_log(tracer.physical[key][1:]), label=label)
     ax.set_xlabel("Time [yr]")
     ax.set_ylabel("log10(Value)")
     ax.legend()
@@ -74,8 +74,8 @@ def plot_abundances(
         if idx is None:
             continue
         ax.plot(
-            tracer.time,
-            safe_log(tracer.abundances[:, idx]),
+            tracer.time[1:],
+            safe_log(tracer.abundances[1:, idx]),
             label=name,
             color=colors.get(name),
         )

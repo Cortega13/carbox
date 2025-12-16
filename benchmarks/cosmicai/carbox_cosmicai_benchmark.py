@@ -29,7 +29,7 @@ os.environ["XLA_FLAGS"] = (
 )
 
 # Constants ported from run_carbox_benchmark.py
-SPOOFED_INITIAL_TIME = 1.0e6
+SPOOFED_INITIAL_TIME = 5.0e6
 KYR_TO_YR = 1000.0
 YEAR_TO_SEC = 3.15576e7
 RADFIELD_FACTOR = 1.7
