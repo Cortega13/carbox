@@ -272,60 +272,64 @@ def save_tracer_output(
 
 def process_tracer(tracer: TracerDataset, output_dir: Path) -> float:
     """Run solver for a single tracer and save results."""
-    start_time = time()
+    try:
+        start_time = time()
 
-    # Retrieve cached assets (loaded once per worker process)
-    network, jnetwork, template, species_names = get_cached_assets()
+        # Retrieve cached assets (loaded once per worker process)
+        network, jnetwork, template, species_names = get_cached_assets()
 
-    # Prepare arrays
-    frame = tracer.frame
-    orig_times = frame["time"].to_numpy(dtype=float)
-    time_grid = build_time_axis(orig_times)
-    densities = frame["density"].to_numpy(dtype=float)
-    temps = frame["gasTemp"].to_numpy(dtype=float)
-    avs = frame["av"].to_numpy(dtype=float)
-    rad_fields = frame["radField"].to_numpy(dtype=float) * RADFIELD_FACTOR
+        # Prepare arrays
+        frame = tracer.frame
+        orig_times = frame["time"].to_numpy(dtype=float)
+        time_grid = build_time_axis(orig_times)
+        densities = frame["density"].to_numpy(dtype=float)
+        temps = frame["gasTemp"].to_numpy(dtype=float)
+        avs = frame["av"].to_numpy(dtype=float)
+        rad_fields = frame["radField"].to_numpy(dtype=float) * RADFIELD_FACTOR
 
-    # Initial state
-    y0 = template * densities[0]
+        # Initial state
+        y0 = template * densities[0]
 
-    # Create SimulationConfig for this tracer
-    # Convert time grid to seconds for the solver
-    physics_t_seconds = time_grid * YEAR_TO_SEC
+        # Create SimulationConfig for this tracer
+        # Convert time grid to seconds for the solver
+        physics_t_seconds = time_grid * YEAR_TO_SEC
 
-    config = SimulationConfig(
-        number_density=densities.tolist(),
-        temperature=temps.tolist(),
-        visual_extinction=avs.tolist(),
-        fuv_field=rad_fields.tolist(),
-        cr_rate=(jnp.ones_like(densities) * 1.6e-17).tolist(),
-        physics_t=physics_t_seconds.tolist(),
-        solver="kvaerno5",
-        atol=1e-14,
-        rtol=1e-6,
-        max_steps=500000,
-    )
+        config = SimulationConfig(
+            number_density=densities.tolist(),
+            temperature=temps.tolist(),
+            visual_extinction=avs.tolist(),
+            fuv_field=rad_fields.tolist(),
+            cr_rate=(jnp.ones_like(densities) * 1.6e-17).tolist(),
+            physics_t=physics_t_seconds.tolist(),
+            solver="kvaerno5",
+            atol=1e-14,
+            rtol=1e-6,
+            max_steps=100000,
+        )
 
-    # Solve
-    solution = solve_network(jnetwork, y0, config)
+        # Solve
+        solution = solve_network(jnetwork, y0, config)
 
-    # Process results
-    ys = np.asarray(solution.ys)
-    fractional = compute_fractional_abundances(ys, network)
+        # Process results
+        ys = np.asarray(solution.ys)
+        fractional = compute_fractional_abundances(ys, network)
 
-    save_tracer_output(
-        tracer.tracer_id,
-        np.asarray(solution.ts),
-        fractional,
-        densities,
-        temps,
-        avs,
-        rad_fields,
-        species_names,
-        output_dir,
-    )
+        save_tracer_output(
+            tracer.tracer_id,
+            np.asarray(solution.ts),
+            fractional,
+            densities,
+            temps,
+            avs,
+            rad_fields,
+            species_names,
+            output_dir,
+        )
 
-    return time() - start_time
+        return time() - start_time
+    except Exception as e:
+        print(f"Tracer {tracer.tracer_id} failed: {e}")
+        return 0.0
 
 
 def parse_args() -> argparse.Namespace:
