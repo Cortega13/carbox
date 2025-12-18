@@ -4,7 +4,7 @@
 #SBATCH -t 01:00:00
 #SBATCH -A AST24021
 #SBATCH -J carbox_cosmicai_benchmark
-#SBATCH -o benchmarks/cosmicai/job.o%j
+#SBATCH -o job.o%j
 module load gcc/13.2.0
 
 CARBOX_ROOT="/work/09338/carlos9/vista/carbox"
