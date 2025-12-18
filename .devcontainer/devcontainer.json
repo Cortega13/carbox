@@ -25,6 +25,11 @@
 			],
 			"settings": {
 				"terminal.integrated.defaultProfile.linux": "bash",
+				"terminal.integrated.profiles.linux": {
+					"bash": {
+						"path": "bash"
+					}
+				},
 				"editor.formatOnSave": false,
 				"python.defaultInterpreterPath": "/workspace/carbox/.venv/bin/python",
 				"python.linting.enabled": true,
