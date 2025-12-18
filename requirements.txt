@@ -18,4 +18,4 @@ tqdm>=4.65.0
 pyyaml>=6.0
 
 scienceplots>=2.2.0
-networkx>=3.6.1
+networkx>=3.2.1
