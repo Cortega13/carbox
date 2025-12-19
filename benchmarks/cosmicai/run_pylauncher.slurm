@@ -14,4 +14,4 @@ source $CARBOX_ROOT/.venv/bin/activate
 
 export PYTHONPATH=$CARBOX_ROOT:$PYTHONPATH
 
-python3 $CARBOX_ROOT/benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir $CARBOX_ROOT/benchmarks/cosmicai/outputs --random-count=8000
+python $CARBOX_ROOT/benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir $CARBOX_ROOT/benchmarks/cosmicai/outputs --random-count=8000
