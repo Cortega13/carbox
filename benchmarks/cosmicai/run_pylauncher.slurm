@@ -11,4 +11,6 @@ CARBOX_ROOT="/work/09338/carlos9/vista/carbox"
 
 source $CARBOX_ROOT/.venv/bin/activate
 
+export PYTHONPATH=$CARBOX_ROOT:$PYTHONPATH
+
 python $CARBOX_ROOT/benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir $CARBOX_ROOT/benchmarks/cosmicai/outputs --random-count=8000
