@@ -10,6 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import time
 
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
@@ -25,8 +31,12 @@ from carbox.solver import solve_network
 # Set JAX flags for CPU optimization (must be set before jax import)
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["XLA_FLAGS"] = (
-    "--xla_cpu_multi_thread_eigen=true --xla_cpu_enable_fast_math=true"
+    "--xla_cpu_multi_thread_eigen=false --xla_cpu_enable_fast_math=true"
 )
+import multiprocessing as mp
+
+mp.set_start_method("spawn", force=True)
+
 
 # Constants ported from run_carbox_benchmark.py
 SPOOFED_INITIAL_TIME = 5.0e6
