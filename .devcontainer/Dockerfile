@@ -20,6 +20,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 
 RUN npm install -g @google/gemini-cli@0.21.2
 
+RUN npm install -g @kilocode/cli
+
 # Set locale
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
