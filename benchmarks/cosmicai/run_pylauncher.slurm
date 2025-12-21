@@ -5,12 +5,12 @@
 #SBATCH -A AST24021
 #SBATCH -J carbox_cosmicai_benchmark
 #SBATCH -o job.o%j
-module load gcc
-module load python3_mpi/3.11.8
+module load gcc/15.1.0 cuda/12.8
+module load python3/3.11.8
 
 CARBOX_ROOT="/work/09338/carlos9/vista/carbox"
 
-source $CARBOX_ROOT/venv/bin/activate
+source $CARBOX_ROOT/.venv/bin/activate
 
 export PYTHONPATH=$CARBOX_ROOT:$PYTHONPATH
 
