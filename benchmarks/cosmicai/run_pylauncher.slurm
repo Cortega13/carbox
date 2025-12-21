@@ -10,7 +10,7 @@ module load python3/3.11.8
 
 CARBOX_ROOT="/work/09338/carlos9/vista/carbox"
 
-source $CARBOX_ROOT/.venv/bin/activate
+source $CARBOX_ROOT/venv/bin/activate
 
 export PYTHONPATH=$CARBOX_ROOT:$PYTHONPATH
 
