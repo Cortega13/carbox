@@ -352,7 +352,7 @@ def process_tracer(tracer: TracerDataset, output_dir: Path) -> float:
         return time() - start_time
     except Exception as e:
         print(f"Tracer {tracer.tracer_id} failed: {e}")
-        return 0.0
+        raise
 
 
 def parse_args() -> argparse.Namespace:

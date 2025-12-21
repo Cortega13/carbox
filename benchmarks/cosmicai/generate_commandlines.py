@@ -85,7 +85,7 @@ def build_command(
     """Build a single MPI command line for a tracer."""
     mpi_prefix = f"srun -n {ranks}" if launcher == "srun" else f"{launcher} -np {ranks}"
     return (
-        f"{mpi_prefix} python {benchmark_script} "
+        f"{mpi_prefix} python3 {benchmark_script} "
         f"--tracer-csv {tracer_csv} --output-dir {output_dir}"
     )
 
