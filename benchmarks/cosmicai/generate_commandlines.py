@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 from pathlib import Path
 
 
@@ -49,6 +50,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_path(path: Path) -> Path:
+    """Resolve relative paths against CARBOX_ROOT when set."""
+    if path.is_absolute():
+        return path
+    root = os.environ.get("CARBOX_ROOT")
+    if root:
+        return Path(root) / path
+    return path
+
+
 def tracer_id_from_csv(path: Path) -> int:
     """Resolve tracer id from a CSV filename or column."""
     stem = path.stem
@@ -82,6 +93,11 @@ def build_command(
 def main() -> None:
     """CLI entrypoint."""
     args = parse_args()
+    args.csv_dir = resolve_path(args.csv_dir)
+    args.command_file = resolve_path(args.command_file)
+    args.output_dir = resolve_path(args.output_dir)
+    args.benchmark_script = resolve_path(args.benchmark_script)
+
     args.command_file.parent.mkdir(parents=True, exist_ok=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
