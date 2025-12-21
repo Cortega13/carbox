@@ -4,6 +4,7 @@ python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir outputs --r
 """
 
 import argparse
+import multiprocessing as mp
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -14,6 +15,13 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
+# Set JAX flags for CPU optimization (must be set before jax import)
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
+os.environ["XLA_FLAGS"] = (
+    "--xla_cpu_multi_thread_eigen=false --xla_cpu_enable_fast_math=false"
+)
+
+mp.set_start_method("spawn", force=True)
 
 
 import jax.numpy as jnp
@@ -27,16 +35,6 @@ from carbox.initial_conditions import initialize_abundances
 from carbox.network import Network
 from carbox.parsers import NetworkNames, parse_chemical_network
 from carbox.solver import solve_network
-
-# Set JAX flags for CPU optimization (must be set before jax import)
-os.environ["JAX_PLATFORM_NAME"] = "cpu"
-os.environ["XLA_FLAGS"] = (
-    "--xla_cpu_multi_thread_eigen=false --xla_cpu_enable_fast_math=true"
-)
-import multiprocessing as mp
-
-mp.set_start_method("spawn", force=True)
-
 
 # Constants ported from run_carbox_benchmark.py
 SPOOFED_INITIAL_TIME = 5.0e6
@@ -377,7 +375,7 @@ def main() -> None:
         print("No tracers found to process.")
         return
 
-    workers = args.workers or cpu_count() or 1
+    workers = args.workers or 128
 
     print(f"Processing {len(tracers)} tracers with {workers} workers...")
 
