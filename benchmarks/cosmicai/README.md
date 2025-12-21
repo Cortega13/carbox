@@ -18,7 +18,9 @@ python benchmarks/cosmicai/npy_to_csv.py \
   --timestep-kyr 8.299 \
   --clip 400 \
   --discretization 1 \
-  --skip-existing
+  --skip-existing \
+  --random-count 40 \
+  --seed 123
 ```
 
 Notes:

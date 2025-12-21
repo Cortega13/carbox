@@ -20,3 +20,4 @@ pyyaml>=6.0
 scienceplots>=2.2.0
 networkx>=3.2.1
 joblib>=1.5.3
+paramiko>=4.0.0
