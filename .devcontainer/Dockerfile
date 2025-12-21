@@ -22,6 +22,8 @@ RUN npm install -g @google/gemini-cli@0.21.2
 
 RUN npm install -g @kilocode/cli
 
+RUN npm i -g @openai/codex
+
 # Set locale
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en

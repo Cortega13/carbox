@@ -1,28 +1,15 @@
-"""Batch run Carbox benchmark tracers with joblib parallelism.
+"""Run CosmicAI tracer benchmarks with joblib or single-CSV mode."""
 
-python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir outputs --random-count=60
-"""
+# Examples:
+# python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir outputs --random-count=60
+# python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --tracer-csv tracer_10.csv --output-dir outputs
 
 import argparse
-import multiprocessing as mp
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
-
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-# Set JAX flags for CPU optimization (must be set before jax import)
-os.environ["JAX_PLATFORM_NAME"] = "cpu"
-os.environ["XLA_FLAGS"] = (
-    "--xla_cpu_multi_thread_eigen=false --xla_cpu_enable_fast_math=false"
-)
-
-mp.set_start_method("spawn", force=True)
-
 
 import jax.numpy as jnp
 import numpy as np
@@ -35,6 +22,12 @@ from carbox.initial_conditions import initialize_abundances
 from carbox.network import Network
 from carbox.parsers import NetworkNames, parse_chemical_network
 from carbox.solver import solve_network
+
+# Set JAX flags for CPU optimization (must be set before jax import)
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
+os.environ["XLA_FLAGS"] = (
+    "--xla_cpu_multi_thread_eigen=true --xla_cpu_enable_fast_math=true"
+)
 
 # Constants ported from run_carbox_benchmark.py
 SPOOFED_INITIAL_TIME = 5.0e6
@@ -219,6 +212,9 @@ def build_tracer_frame(
 
 def load_tracers(args: argparse.Namespace) -> list[TracerDataset]:
     """Load tracer datasets from NPY source."""
+    if args.tracer_csv:
+        return [load_tracer_csv(args.tracer_csv)]
+
     spec = get_benchmark_spec(
         args.benchmark, args.npy_path, args.timestep, args.clip, args.discretization
     )
@@ -239,6 +235,25 @@ def load_tracers(args: argparse.Namespace) -> list[TracerDataset]:
         frame = build_tracer_frame(data, idx, spec)
         datasets.append(TracerDataset(tracer_id=idx, frame=frame))
     return datasets
+
+
+def load_tracer_csv(path: Path) -> TracerDataset:
+    """Load tracer dataset from a CSV file."""
+    frame = pd.read_csv(path)
+    missing = {"time", "gasTemp", "density", "av", "radField"} - set(frame.columns)
+    if missing:
+        raise ValueError(f"Tracer CSV missing columns: {sorted(missing)}")
+
+    if "tracer" in frame.columns:
+        tracer_id = int(frame["tracer"].iloc[0])
+    else:
+        stem = path.stem
+        tracer_id = int(stem.split("_")[-1]) if stem.split("_")[-1].isdigit() else 0
+        frame = frame.copy()
+        frame["tracer"] = tracer_id
+
+    frame = frame[["tracer", "time", "gasTemp", "density", "av", "radField"]]
+    return TracerDataset(tracer_id=tracer_id, frame=frame)
 
 
 def compute_fractional_abundances(
@@ -350,6 +365,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clip", type=int, default=None, help="Max timesteps")
     parser.add_argument("--timestep", type=float, default=None, help="Timestep kyr")
     parser.add_argument("--npy-path", type=Path, default=None, help="Source NPY path")
+    parser.add_argument(
+        "--tracer-csv",
+        type=Path,
+        default=None,
+        help="Run a single tracer CSV instead of loading from NPY",
+    )
 
     # Tracer selection
     parser.add_argument(
@@ -375,20 +396,23 @@ def main() -> None:
         print("No tracers found to process.")
         return
 
-    workers = args.workers or 128
+    if args.tracer_csv:
+        print(f"Processing tracer {tracers[0].tracer_id} from CSV...")
+        start_wall_time = time()
+        durations = [process_tracer(tracers[0], args.output_dir)]
+    else:
+        workers = args.workers or cpu_count() or 1
+        print(f"Processing {len(tracers)} tracers with {workers} workers...")
+        start_wall_time = time()
+        durations = []
+        parallel_generator = Parallel(n_jobs=workers, return_as="generator")(
+            delayed(process_tracer)(tracer, args.output_dir) for tracer in tracers
+        )
 
-    print(f"Processing {len(tracers)} tracers with {workers} workers...")
-
-    start_wall_time = time()
-    durations: list[float] = []
-    parallel_generator = Parallel(n_jobs=workers, return_as="generator")(
-        delayed(process_tracer)(tracer, args.output_dir) for tracer in tracers
-    )
-
-    for i, duration in enumerate(parallel_generator, 1):
-        durations.append(duration)
-        print(f"Completed {i}/{len(tracers)} tracers", end="\r", flush=True)
-    print("")  # Newline after progress bar
+        for i, duration in enumerate(parallel_generator, 1):
+            durations.append(duration)
+            print(f"Completed {i}/{len(tracers)} tracers", end="\r", flush=True)
+        print("")  # Newline after progress bar
 
     end_wall_time = time()
     wall_time = end_wall_time - start_wall_time
