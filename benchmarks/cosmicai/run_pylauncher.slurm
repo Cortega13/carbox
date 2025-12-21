@@ -8,6 +8,7 @@
 
 module load gcc/15.1.0 cuda/12.8
 module load python3/3.11.8
+module load pylauncher
 
 CARBOX_ROOT="/work/09338/carlos9/vista/carbox"
 CMD_FILE="$CARBOX_ROOT/benchmarks/cosmicai/commandlines.txt"
