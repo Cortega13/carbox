@@ -293,7 +293,9 @@ def save_tracer_output(
     return output_path
 
 
-def process_tracer(tracer: TracerDataset, output_dir: Path) -> float:
+def process_tracer(
+    tracer: TracerDataset, output_dir: Path, solver_name: str
+) -> float:
     """Run solver for a single tracer and save results."""
     try:
         start_time = time()
@@ -324,7 +326,7 @@ def process_tracer(tracer: TracerDataset, output_dir: Path) -> float:
             fuv_field=rad_fields.tolist(),
             cr_rate=(jnp.ones_like(densities) * 1.6e-17).tolist(),
             physics_t=physics_t_seconds.tolist(),
-            solver="kvaerno5",
+            solver=solver_name,
             atol=1e-14,
             rtol=1e-6,
             max_steps=100000,
@@ -383,6 +385,12 @@ def parse_args() -> argparse.Namespace:
         "--output-dir", type=Path, default=Path("outputs"), help="Output dir"
     )
     parser.add_argument("--workers", type=int, default=None, help="Parallel workers")
+    parser.add_argument(
+        "--solver",
+        type=str,
+        default="kvaerno5",
+        help="ODE solver: dopri5, kvaerno5, tsit5",
+    )
 
     return parser.parse_args()
 
@@ -399,14 +407,15 @@ def main() -> None:
     if args.tracer_csv:
         print(f"Processing tracer {tracers[0].tracer_id} from CSV...")
         start_wall_time = time()
-        durations = [process_tracer(tracers[0], args.output_dir)]
+        durations = [process_tracer(tracers[0], args.output_dir, args.solver)]
     else:
         workers = args.workers or cpu_count() or 1
         print(f"Processing {len(tracers)} tracers with {workers} workers...")
         start_wall_time = time()
         durations = []
         parallel_generator = Parallel(n_jobs=workers, return_as="generator")(
-            delayed(process_tracer)(tracer, args.output_dir) for tracer in tracers
+            delayed(process_tracer)(tracer, args.output_dir, args.solver)
+            for tracer in tracers
         )
 
         for i, duration in enumerate(parallel_generator, 1):
