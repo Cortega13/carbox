@@ -8,6 +8,21 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+PLOT_SPECIES = [
+    "H2",
+    "CO",
+    "C",
+    "C+",
+    "O",
+    "H3+",
+    "HCO+",
+    "H3O+",
+    "E-",
+    "MG+",
+    "H2O",
+    "OH",
+]
+
 
 @dataclass
 class TracerData:
@@ -89,7 +104,7 @@ def build_color_map(species: Sequence[str]) -> dict[str, str]:
     cmap = plt.get_cmap("tab20")
     colors: dict[str, str] = {}
     for index, name in enumerate(species):
-        colors[name] = cmap(index % cmap.N)
+        colors[name] = cmap(index % cmap.N)  # type:ignore
     return colors
 
 
@@ -123,7 +138,7 @@ def process_tracers(input_dir: Path, output_dir: Path, count: int) -> None:
     if not paths:
         return
     tracers = [parse_tracer_file(path) for path in paths]
-    species_names = build_global_species_list(tracers, count)
+    species_names = PLOT_SPECIES
     colors = build_color_map(species_names)
     for tracer in tracers:
         render_tracer_plot(tracer, species_names, output_dir, colors)

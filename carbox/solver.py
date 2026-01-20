@@ -10,7 +10,11 @@ import jax
 import jax.numpy as jnp
 
 from .config import SimulationConfig
+from .lineax_patch import apply_lineax_lu_transpose_patch
 from .network import JNetwork, Network
+
+# Apply tracer-safe linear solve behaviour for LU-based solvers.
+apply_lineax_lu_transpose_patch()
 
 
 def get_solver(solver_name: str) -> dx.AbstractSolver:
