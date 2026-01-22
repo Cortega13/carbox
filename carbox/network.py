@@ -28,7 +28,7 @@ class JNetwork(eqx.Module):
         self.reactions = reactions  # R
         self.reactant_multipliers = reactant_multipliers
 
-    @jax.jit
+    @eqx.filter_jit
     def get_rates(
         self,
         temperature: Array,
@@ -50,7 +50,7 @@ class JNetwork(eqx.Module):
             ]
         )
 
-    @jax.jit
+    @eqx.filter_jit
     def multiply_rates_by_abundance(self, rates: Array, abundances: Array) -> Array:
         """Multiply the rates by the abundances of the reactants."""
         # We scatter the abunndances in two columns, with unity if it is monomolecular

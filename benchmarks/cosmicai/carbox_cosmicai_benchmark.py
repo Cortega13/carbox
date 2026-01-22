@@ -10,6 +10,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
+from typing import Any
+
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
+os.environ["XLA_FLAGS"] = (
+    "--xla_cpu_multi_thread_eigen=true --xla_cpu_enable_fast_math=true"
+)
 
 import jax.numpy as jnp
 import numpy as np
@@ -23,31 +29,30 @@ from carbox.network import Network
 from carbox.parsers import NetworkNames, parse_chemical_network
 from carbox.solver import solve_network
 
-# Set JAX flags for CPU optimization (must be set before jax import)
-os.environ["JAX_PLATFORM_NAME"] = "cpu"
-os.environ["XLA_FLAGS"] = (
-    "--xla_cpu_multi_thread_eigen=true --xla_cpu_enable_fast_math=true"
-)
-
 # Constants ported from run_carbox_benchmark.py
-SPOOFED_INITIAL_TIME = 5e5
+SPOOFED_INITIAL_TIME = 1e4
 KYR_TO_YR = 1000.0
 YEAR_TO_SEC = 3.15576e7
 RADFIELD_FACTOR = 1.7
 ELEMENTS = ["H", "HE", "C", "N", "O", "S", "SI", "FE", "MG", "NA", "CL", "P", "F"]
 DEFAULT_TRACER_DIR = Path("benchmarks/cosmicai/data/turbulence_tracers_csv")
 NETWORK_PATH = Path("network_files/uclchem_small_chemistry.csv")
+LARGE_NETWORK_PATH = Path("network_files/uclchem_gas_phase_only.csv")
 INITIAL_PATH = Path("benchmarks/initial_conditions/small_chemistry_initial.yaml")
-PHYSICAL_MINMAX = {
-    "density": (10, 1e3),
-    "temperature": (5, 200),
-    "av": (1e-2, 6),
-    "rad_field": (1e-02, 4),
-}
 
 # Global cache for worker processes
 _WORKER_CACHE = {}
-_SEED = 13
+_SEED = 14
+
+
+@dataclass
+class NetworkAssets:
+    """Cached network resources."""
+
+    network: Network
+    jnetwork: Any
+    template: np.ndarray
+    species_names: list[str]
 
 
 def parse_element_counts(name: str, elements: Sequence[str]) -> dict[str, int]:
@@ -109,30 +114,40 @@ def load_initial_abundances(path: Path) -> dict[str, float]:
     return data["abundances"]
 
 
-def load_network():
+def load_network_assets(
+    network_path: Path, initial_abundances: dict[str, float]
+) -> NetworkAssets:
     """Load chemical network and compiled ODE system."""
     network = parse_chemical_network(
-        str(NETWORK_PATH), format_type=NetworkNames.uclchem
+        str(network_path), format_type=NetworkNames.uclchem
     )
-    return network, network.get_ode()
+    jnetwork = network.get_ode()
+
+    # Build unit-density abundance template
+    config = SimulationConfig(
+        number_density=[1.0],
+        temperature=[10.0],
+        initial_abundances=initial_abundances,
+    )
+    template = initialize_abundances(network, config)
+    species_names = [s.name for s in network.species]
+
+    return NetworkAssets(
+        network=network,
+        jnetwork=jnetwork,
+        template=template,
+        species_names=species_names,
+    )
 
 
 def get_cached_assets():
     """Load and cache network assets for the worker process."""
     if "assets" not in _WORKER_CACHE:
-        network, jnetwork = load_network()
         initial_abundances = load_initial_abundances(INITIAL_PATH)
-
-        # Build unit-density abundance template
-        config = SimulationConfig(
-            number_density=[1.0],
-            temperature=[10.0],
-            initial_abundances=initial_abundances,
-        )
-        template = initialize_abundances(network, config)
-
-        species_names = [s.name for s in network.species]
-        _WORKER_CACHE["assets"] = (network, jnetwork, template, species_names)
+        _WORKER_CACHE["assets"] = {
+            "small": load_network_assets(NETWORK_PATH, initial_abundances),
+            "large": load_network_assets(LARGE_NETWORK_PATH, initial_abundances),
+        }
     return _WORKER_CACHE["assets"]
 
 
@@ -285,6 +300,7 @@ def save_tracer_output(
     rad_fields: np.ndarray,
     species_names: Sequence[str],
     output_dir: Path,
+    label: str | None = None,
 ) -> Path:
     """Save tracer outputs to npy."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -295,9 +311,25 @@ def save_tracer_output(
         [time_grid, densities, temperatures, avs, rad_fields, abundances]
     )
     payload = {"columns": np.array(columns, dtype=object), "data": matrix}
-    output_path = output_dir / f"tracer_{tracer_id}.npy"
+    suffix = f"_{label}" if label else ""
+    output_path = output_dir / f"tracer_{tracer_id}{suffix}.npy"
     np.save(output_path, payload, allow_pickle=True)  # type: ignore
     return output_path
+
+
+def map_abundances_between_networks(
+    source_names: Sequence[str],
+    source_values: np.ndarray,
+    target_names: Sequence[str],
+    base_values: np.ndarray,
+) -> np.ndarray:
+    """Transfer abundances from source species list into target."""
+    lookup = {name: idx for idx, name in enumerate(source_names)}
+    mapped = np.array(base_values, copy=True)
+    for target_idx, target_name in enumerate(target_names):
+        if target_name in lookup:
+            mapped[target_idx] = source_values[lookup[target_name]]
+    return mapped
 
 
 def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) -> float:
@@ -306,7 +338,9 @@ def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) ->
         start_time = time()
 
         # Retrieve cached assets (loaded once per worker process)
-        network, jnetwork, template, species_names = get_cached_assets()
+        assets = get_cached_assets()
+        small_assets = assets["small"]
+        large_assets = assets["large"]
 
         # Prepare arrays
         frame = tracer.frame
@@ -319,13 +353,14 @@ def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) ->
         rad_fields = rad_fields * RADFIELD_FACTOR
 
         # Initial state
-        y0 = template * densities[0]
+        # Solver expects fractional abundances; physical density is supplied separately.
+        y0_small = small_assets.template
 
         # Create SimulationConfig for this tracer
         # Convert time grid to seconds for the solver
         physics_t_seconds = time_grid * YEAR_TO_SEC
 
-        config = SimulationConfig(
+        config_small = SimulationConfig(
             number_density=densities.tolist(),
             temperature=temps.tolist(),
             visual_extinction=avs.tolist(),
@@ -338,23 +373,68 @@ def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) ->
             max_steps=80000,
         )
 
-        # Solve
-        solution = solve_network(jnetwork, y0, config)
+        # Solve small network to get post-spoof chemistry
+        solution_small = solve_network(small_assets.jnetwork, y0_small, config_small)
 
         # Process results
-        ys = np.asarray(solution.ys)
-        fractional = compute_fractional_abundances(ys, network)
+        ys_small = np.asarray(solution_small.ys)
+        fractional_small = compute_fractional_abundances(ys_small, small_assets.network)
+
+        # Drop the spoofed t=0 snapshot so both networks start from the post-spoof state
+        start_idx = 1
 
         save_tracer_output(
             tracer.tracer_id,
-            np.asarray(solution.ts),
-            fractional,
-            densities,
-            temps,
-            avs,
-            rad_fields,
-            species_names,
+            np.asarray(solution_small.ts)[start_idx:],
+            fractional_small[start_idx:],
+            densities[start_idx:],
+            temps[start_idx:],
+            avs[start_idx:],
+            rad_fields[start_idx:],
+            small_assets.species_names,
             output_dir,
+            label="small",
+        )
+
+        # Seed the large network with the post-spoof abundances for overlapping species
+        post_spoof_abundances = ys_small[start_idx]
+        # Keep large network initialization in fractional units as well
+        large_y0_base = large_assets.template
+        y0_large = map_abundances_between_networks(
+            small_assets.species_names,
+            post_spoof_abundances,
+            large_assets.species_names,
+            large_y0_base,
+        )
+
+        config_large = SimulationConfig(
+            number_density=densities[start_idx:].tolist(),
+            temperature=temps[start_idx:].tolist(),
+            visual_extinction=avs[start_idx:].tolist(),
+            fuv_field=rad_fields[start_idx:].tolist(),
+            cr_rate=(jnp.ones_like(densities[start_idx:]) * 1.6e-17).tolist(),
+            physics_t=physics_t_seconds[start_idx:].tolist(),
+            solver=solver_name,
+            atol=1e-14,
+            rtol=1e-5,
+            max_steps=80000,
+        )
+
+        solution_large = solve_network(large_assets.jnetwork, y0_large, config_large)
+        ys_large = np.asarray(solution_large.ys)
+        fractional_large = compute_fractional_abundances(ys_large, large_assets.network)
+
+        save_tracer_output(
+            tracer.tracer_id,
+            np.asarray(solution_large.ts),
+            fractional_large,
+            densities[start_idx:],
+            temps[start_idx:],
+            avs[start_idx:],
+            rad_fields[start_idx:],
+            large_assets.species_names,
+            output_dir,
+            label="large",
         )
 
         return time() - start_time

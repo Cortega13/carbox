@@ -6,6 +6,7 @@ Wraps Diffrax solvers with appropriate settings for stiff chemistry ODEs.
 from typing import Any
 
 import diffrax as dx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
@@ -81,7 +82,7 @@ def build_physics_interpolation(config: SimulationConfig) -> dx.CubicInterpolati
     return dx.CubicInterpolation(physics_t, coeffs)
 
 
-@jax.jit(static_argnames=["solver_name", "max_steps"])
+@eqx.filter_jit
 def jsolve_network(
     jnetwork: JNetwork,
     y0: jnp.ndarray,
