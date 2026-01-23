@@ -1,12 +1,11 @@
 """Run CosmicAI tracer benchmarks with joblib or single-CSV mode."""
 
 # Examples:
-# python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir outputs --random-count=2
+# python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir outputs --random-count=10
 # python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --tracer-csv benchmarks/cosmicai/data/turbulence_tracers_csv/tracer_630.csv --output-dir outputs
 
 import argparse
 import os
-import traceback
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +25,7 @@ from carbox.parsers import NetworkNames, parse_chemical_network
 from carbox.solver import solve_network
 
 # Constants ported from run_carbox_benchmark.py
-SPOOFED_INITIAL_TIME = 1e2
+SPOOFED_INITIAL_TIME = 1e4
 KYR_TO_YR = 1000.0
 YEAR_TO_SEC = 3.15576e7
 RADFIELD_FACTOR = 1.7
@@ -35,7 +34,6 @@ DEFAULT_TRACER_DIR = Path("benchmarks/cosmicai/data/turbulence_tracers_csv")
 NETWORK_PATH = Path("network_files/uclchem_small_chemistry.csv")
 LARGE_NETWORK_PATH = Path("network_files/uclchem_gas_phase_only.csv")
 INITIAL_PATH = Path("benchmarks/initial_conditions/small_chemistry_initial.yaml")
-MAX_CHUNK_YEARS = 50.0
 
 # Global cache for worker processes
 _WORKER_CACHE = {}
@@ -329,134 +327,6 @@ def map_abundances_between_networks(
     return mapped
 
 
-def warmup_large_network(
-    y0: np.ndarray,
-    assets: NetworkAssets,
-    density: float,
-    temperature: float,
-    av: float,
-    rad_field: float,
-    solver_name: str,
-    cr_rate: float = 1.6e-17,
-    warmup_seconds: float = 1e5,
-) -> np.ndarray:
-    """Short pre-relaxation to avoid extreme stiffness at t=0 for large network."""
-    config = SimulationConfig(
-        number_density=[density, density],
-        temperature=[temperature, temperature],
-        visual_extinction=[av, av],
-        fuv_field=[rad_field, rad_field],
-        cr_rate=[cr_rate, cr_rate],
-        physics_t=[0.0, warmup_seconds],
-        solver=solver_name,
-        atol=1e-12,
-        rtol=1e-4,
-        max_steps=20000,
-    )
-    solution = solve_network(assets.jnetwork, y0, config)
-    return np.asarray(solution.ys)[-1]
-
-
-def integrate_large_chunked(
-    jnetwork,
-    y0: np.ndarray,
-    densities: np.ndarray,
-    temps: np.ndarray,
-    avs: np.ndarray,
-    rad_fields: np.ndarray,
-    physics_t_seconds: np.ndarray,
-    solver_name: str,
-    atol: float,
-    rtol: float,
-    per_species_atol: list[float],
-    max_steps: int,
-    max_chunk_years: float = MAX_CHUNK_YEARS,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Integrate large network in smaller time chunks to avoid hitting max_steps."""
-    chunk_seconds = max_chunk_years * YEAR_TO_SEC
-
-    current_y = np.asarray(y0)
-    ys = [current_y]
-    ts = [physics_t_seconds[0]]
-    min_chunk_seconds = 0.01 * YEAR_TO_SEC
-
-    for idx in range(len(physics_t_seconds) - 1):
-        t0, t1 = physics_t_seconds[idx], physics_t_seconds[idx + 1]
-        span = t1 - t0
-        n_sub = max(1, int(np.ceil(span / chunk_seconds)))
-        sub_ts = np.linspace(t0, t1, n_sub + 1)
-
-        def lin_interp(a0: float, a1: float) -> np.ndarray:
-            return np.linspace(a0, a1, n_sub + 1)
-
-        densities_sub = lin_interp(densities[idx], densities[idx + 1])
-        temps_sub = lin_interp(temps[idx], temps[idx + 1])
-        avs_sub = lin_interp(avs[idx], avs[idx + 1])
-        rad_fields_sub = lin_interp(rad_fields[idx], rad_fields[idx + 1])
-
-        def solve_interval(
-            t_start: float,
-            t_end: float,
-            vals_start: tuple[float, float, float, float],
-            vals_end: tuple[float, float, float, float],
-            y_start: np.ndarray,
-        ) -> tuple[float, np.ndarray]:
-            config = SimulationConfig(
-                number_density=[vals_start[0], vals_end[0]],
-                temperature=[vals_start[1], vals_end[1]],
-                visual_extinction=[vals_start[2], vals_end[2]],
-                fuv_field=[vals_start[3], vals_end[3]],
-                cr_rate=(np.ones(2) * 1.6e-17).tolist(),
-                physics_t=[t_start, t_end],
-                solver=solver_name,
-                atol=atol,
-                rtol=rtol,
-                per_species_atol=per_species_atol,
-                max_steps=max_steps,
-            )
-
-            try:
-                solution = solve_network(jnetwork, y_start, config)
-                return np.asarray(solution.ts)[-1], np.asarray(solution.ys)[-1]
-            except Exception as exc:
-                message = str(exc).lower()
-                if (
-                    "maximum number of solver steps" in message
-                    and (t_end - t_start) > min_chunk_seconds
-                ):
-                    midpoint = 0.5 * (t_start + t_end)
-                    mid_vals = tuple(
-                        0.5 * (vs + ve) for vs, ve in zip(vals_start, vals_end)
-                    )
-                    _, y_mid = solve_interval(
-                        t_start, midpoint, vals_start, mid_vals, y_start
-                    )
-                    return solve_interval(midpoint, t_end, mid_vals, vals_end, y_mid)
-                raise
-
-        for j in range(n_sub):
-            vals_start = (
-                float(densities_sub[j]),
-                float(temps_sub[j]),
-                float(avs_sub[j]),
-                float(rad_fields_sub[j]),
-            )
-            vals_end = (
-                float(densities_sub[j + 1]),
-                float(temps_sub[j + 1]),
-                float(avs_sub[j + 1]),
-                float(rad_fields_sub[j + 1]),
-            )
-
-            t_final, current_y = solve_interval(
-                float(sub_ts[j]), float(sub_ts[j + 1]), vals_start, vals_end, current_y
-            )
-            ys.append(current_y)
-            ts.append(t_final)
-
-    return np.asarray(ts), np.asarray(ys)
-
-
 def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) -> float:
     """Run solver for a single tracer and save results."""
     try:
@@ -493,9 +363,9 @@ def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) ->
             cr_rate=(jnp.ones_like(densities) * 1.6e-17).tolist(),
             physics_t=physics_t_seconds.tolist(),
             solver=solver_name,
-            atol=1e-10,
-            rtol=1e-4,
-            max_steps=200000,
+            atol=1e-14,
+            rtol=1e-5,
+            max_steps=80000,
         )
 
         # Solve small network to get post-spoof chemistry
@@ -532,23 +402,6 @@ def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) ->
             large_y0_base,
         )
 
-        # Pre-relax new species in the large network to reduce stiffness at t=0
-        y0_large = warmup_large_network(
-            y0_large,
-            large_assets,
-            density=densities[start_idx],
-            temperature=temps[start_idx],
-            av=avs[start_idx],
-            rad_field=rad_fields[start_idx],
-            solver_name=solver_name,
-        )
-
-        # Use relaxed absolute tolerances for extremely tiny species so they don't
-        # dominate stepsize control.
-        atol_vector = np.full_like(y0_large, 1e-6, dtype=float)
-        tiny_mask = y0_large < 1e-9
-        atol_vector[tiny_mask] = 1e-2
-
         config_large = SimulationConfig(
             number_density=densities[start_idx:].tolist(),
             temperature=temps[start_idx:].tolist(),
@@ -557,31 +410,18 @@ def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) ->
             cr_rate=(jnp.ones_like(densities[start_idx:]) * 1.6e-17).tolist(),
             physics_t=physics_t_seconds[start_idx:].tolist(),
             solver=solver_name,
-            atol=1e-6,
-            rtol=1e-2,
-            per_species_atol=atol_vector.tolist(),
-            max_steps=200000,
+            atol=1e-14,
+            rtol=1e-5,
+            max_steps=80000,
         )
 
-        ts_large, ys_large = integrate_large_chunked(
-            large_assets.jnetwork,
-            y0_large,
-            densities[start_idx:],
-            temps[start_idx:],
-            avs[start_idx:],
-            rad_fields[start_idx:],
-            physics_t_seconds[start_idx:],
-            solver_name=solver_name,
-            atol=config_large.atol,
-            rtol=config_large.rtol,
-            per_species_atol=config_large.per_species_atol or [config_large.atol],
-            max_steps=config_large.max_steps,
-        )
+        solution_large = solve_network(large_assets.jnetwork, y0_large, config_large)
+        ys_large = np.asarray(solution_large.ys)
         fractional_large = compute_fractional_abundances(ys_large, large_assets.network)
 
         save_tracer_output(
             tracer.tracer_id,
-            np.asarray(ts_large),
+            np.asarray(solution_large.ts),
             fractional_large,
             densities[start_idx:],
             temps[start_idx:],
@@ -594,21 +434,7 @@ def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) ->
 
         return time() - start_time
     except Exception:
-        print(f"\nTracer {tracer.tracer_id} crashed; skipping.")
-        traceback.print_exc()
-        try:
-            frame = tracer.frame
-            print(
-                "Physical ranges "
-                f"dens={frame['density'].min():.3e}/{frame['density'].max():.3e} "
-                f"T={frame['gasTemp'].min():.3e}/{frame['gasTemp'].max():.3e} "
-                f"Av={frame['av'].min():.3e}/{frame['av'].max():.3e} "
-                f"radField={frame['radField'].min():.3e}/{frame['radField'].max():.3e}"
-            )
-        except Exception:
-            pass
-        if os.getenv("RAISE_ON_TRACER_ERROR"):
-            raise
+        print(f"Tracer {tracer.tracer_id} crashed; skipping.")
         return 0.0
 
 

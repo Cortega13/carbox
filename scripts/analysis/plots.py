@@ -45,7 +45,7 @@ def parse_tracer_file(path: Path) -> TracerData:
     payload = np.load(path, allow_pickle=True).item()
     columns = list(payload["columns"])
     data = np.asarray(payload["data"], dtype=float)
-    tracer_id = int(path.stem.split("_")[-1])
+    tracer_id = int(path.stem.split("_")[1])
     physical_keys = ["density", "temperature", "av", "rad_field"]
     physical = {key: data[:, columns.index(key)] for key in physical_keys}
     species = columns[5:]

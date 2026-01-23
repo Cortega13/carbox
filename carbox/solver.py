@@ -11,11 +11,7 @@ import jax
 import jax.numpy as jnp
 
 from .config import SimulationConfig
-from .lineax_patch import apply_lineax_lu_transpose_patch
 from .network import JNetwork, Network
-
-# Apply tracer-safe linear solve behaviour for LU-based solvers.
-apply_lineax_lu_transpose_patch()
 
 
 def get_solver(solver_name: str) -> dx.AbstractSolver:
@@ -51,7 +47,7 @@ def get_solver(solver_name: str) -> dx.AbstractSolver:
     return solvers[solver_name.lower()]()
 
 
-def build_physics_interpolation(config: SimulationConfig) -> dx.CubicInterpolation:
+def build_physics_interpolation(config: SimulationConfig) -> dx.AbstractPath:
     """Build interpolated path for time-varying physical parameters.
 
     Parameters
@@ -76,10 +72,9 @@ def build_physics_interpolation(config: SimulationConfig) -> dx.CubicInterpolati
     ]
     param_arrays = [params[name] for name in param_names]
 
-    # Create cubic interpolation path (time in seconds)
+    # Use linear interpolation to avoid overshoot (rad_field/Av can go negative with cubic)
     physics_data = jnp.stack(param_arrays, axis=-1)
-    coeffs = dx.backward_hermite_coefficients(physics_t, physics_data)
-    return dx.CubicInterpolation(physics_t, coeffs)
+    return dx.LinearInterpolation(physics_t, physics_data)
 
 
 @eqx.filter_jit
@@ -89,7 +84,7 @@ def jsolve_network(
     t_eval: jnp.ndarray,
     physics_path: dx.AbstractPath,
     solver_name: str = "kvaerno5",
-    atol: float = 1e-18,
+    atol: float | jnp.ndarray = 1e-18,
     rtol: float = 1e-12,
     max_steps: int = 4096,
 ) -> dx.Solution:
@@ -135,6 +130,10 @@ def jsolve_network(
         temperature, cr_rate, fuv_field, visual_extinction, number_density = (
             args.evaluate(t)
         )
+        # Guard against interpolated negatives (can destabilize rates)
+        fuv_field = jnp.clip(fuv_field, 1e-4)
+        visual_extinction = jnp.clip(visual_extinction, 1e-4)
+        number_density = jnp.clip(number_density, 1e-4)
 
         # Fractional to absolute: n_i = X_i * n
         y_abs = y * number_density
@@ -158,7 +157,7 @@ def jsolve_network(
         t1=t_eval[-1],
         dt0=1e-6,  # Initial timestep [s]
         y0=y0,
-        stepsize_controller=dx.PIDController(atol=atol, rtol=rtol, factormax=1e3),
+        stepsize_controller=dx.PIDController(atol=atol, rtol=rtol),
         saveat=dx.SaveAt(ts=t_eval),
         args=physics_path,
         max_steps=max_steps,
@@ -202,13 +201,19 @@ def solve_network(
 
     t_eval = jnp.array(config.physics_t)
 
+    atol_value: float | jnp.ndarray = (
+        jnp.array(config.per_species_atol)
+        if config.per_species_atol is not None
+        else config.atol
+    )
+
     return jsolve_network(
         jnetwork=jnetwork,
         y0=y0,
         t_eval=t_eval,
         physics_path=physics_path,
         solver_name=config.solver,
-        atol=config.atol,
+        atol=atol_value,
         rtol=config.rtol,
         max_steps=config.max_steps,
     )

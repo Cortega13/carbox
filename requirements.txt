@@ -1,11 +1,9 @@
 # Carbox - JAX-Accelerated Chemical Kinetics Simulation Framework
 # Core JAX ecosystem for differentiable computing (pinned to known working combo)
-jax==0.8.2
-jaxlib==0.8.2
-equinox==0.13.2
-diffrax==0.7.0
-lineax==0.0.8
-optimistix==0.0.11
+jax==0.4.38
+jaxlib==0.4.38
+equinox>=0.11.0
+diffrax>=0.4.0
 
 # Scientific computing
 numpy==2.4.1

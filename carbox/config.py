@@ -74,7 +74,7 @@ class SimulationConfig:
     cr_rate: list[float] = field(default_factory=lambda: [1e-17])
     fuv_field: list[float] = field(default_factory=lambda: [1.0])
     visual_extinction: list[float] = field(
-        default_factory=lambda: [2.0]
+        default_factory=lambda: [1.0]
     )  # Can be overridden by self-consistent calculation
     gas_to_dust_ratio: float = 100.0
 
@@ -91,12 +91,13 @@ class SimulationConfig:
             "C": 1e-4,
         }
     )
-    abundance_floor: float = 1e-30
+    abundance_floor: float = 1e-20
 
     # Integration parameters
     solver: str = "kvaerno5"
     atol: float = 1e-12
     rtol: float = 1e-6
+    per_species_atol: list[float] | None = None
     max_steps: int = 20000
 
     # Output settings

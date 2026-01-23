@@ -44,15 +44,17 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
     """
     n_species = len(network.species)
 
-    # Initialize all to floor (fractional abundance)
-    y0 = jnp.ones(n_species) * config.abundance_floor
+    # Initialize all to floor (fractional abundance). Clamp floor to 1e-20 to avoid
+    # extremely small values driving stiff transients.
+    abundance_floor = max(config.abundance_floor, 1e-20)
+    y0 = jnp.ones(n_species) * abundance_floor
 
     # Set specified abundances (fractional)
     species_names = [s.name for s in network.species]
     for species_name, fractional_abundance in config.initial_abundances.items():
         if species_name in species_names:
             idx = species_names.index(species_name)
-            y0 = y0.at[idx].set(fractional_abundance)
+            y0 = y0.at[idx].set(max(fractional_abundance, abundance_floor))
         else:
             print(f"Warning: Species '{species_name}' in config not found in network")
 
