@@ -17,34 +17,30 @@ class SimulationConfig:
 
     Attributes:
     ----------
-    Physical Parameters:
-        number_density : float
-            Total hydrogen number density [cm^-3]. Range: [1e2, 1e6]
-        temperature : float
-            Gas temperature [K]. Range: [10, 1e5]
-        cr_rate : float
-            Cosmic ray ionization rate [s^-1]. Range: [1e-17, 1e-14]
-        fuv_field : float
-            FUV radiation field (Draine units). Range: [1e0, 1e5]
-        visual_extinction : float
-            Visual extinction Av [mag]. Range: [0, 10]
+    Physical Parameters (time-grid):
+        time_grid_years : List[float]
+            Simulation time grid [years], strictly increasing
+        number_density_grid : List[float]
+            Total hydrogen number density [cm^-3]
+        temperature_grid : List[float]
+            Gas temperature [K]
+        cr_rate_grid : List[float]
+            Cosmic ray ionization rate [s^-1]
+        fuv_field_grid : List[float]
+            FUV radiation field (Draine units)
+        visual_extinction_grid : List[float]
+            Visual extinction Av [mag] (ignored if use_self_consistent_av is True)
         gas_to_dust_ratio : float
             Gas-to-dust mass ratio. Typical: 100 (= 0.01 dust/gas)
 
     Initial Abundances:
         initial_abundances : Dict[str, float]
-            Species name -> fractional abundance (relative to number_density)
+            Species name -> fractional abundance (relative to number_density_grid[0])
             Example: {"H2": 1.0, "O": 2e-4, "C": 1e-4}
         abundance_floor : float
             Minimum abundance for all species (numerical stability)
 
     Integration Parameters:
-        t_start : float
-            Start time [years]
-        t_end : float
-            End time [years]
-        n_snapshots : int
-            Number of output snapshots (log-spaced)
         solver : str
             Solver name: 'dopri5', 'kvaerno5', 'tsit5'
         atol : float
@@ -63,16 +59,19 @@ class SimulationConfig:
             Save dy/dt at each snapshot
         save_rates : bool
             Save reaction rates at each snapshot
+        save_plots : bool
+            Save evolution plots (physical parameters and key species)
         run_name : str
             Identifier for this run
     """
 
-    # Physical parameters
-    number_density: float = 1e4
-    temperature: float = 50.0
-    cr_rate: float = 1e-17
-    fuv_field: float = 1.0
-    visual_extinction: float = 2.0  # Can be overridden by self-consistent calculation
+    # Physical parameters (time-grid)
+    time_grid_years: list[float] = field(default_factory=lambda: [0.0, 1e6])
+    number_density_grid: list[float] = field(default_factory=lambda: [1e4, 1e4])
+    temperature_grid: list[float] = field(default_factory=lambda: [50.0, 50.0])
+    cr_rate_grid: list[float] = field(default_factory=lambda: [1e-17, 1e-17])
+    fuv_field_grid: list[float] = field(default_factory=lambda: [1.0, 1.0])
+    visual_extinction_grid: list[float] = field(default_factory=lambda: [2.0, 2.0])
     gas_to_dust_ratio: float = 100.0
 
     # Cloud geometry (for photoreaction shielding and self-consistent Av)
@@ -80,7 +79,7 @@ class SimulationConfig:
     base_av: float = 0.0  # Base Av before column density contribution
     use_self_consistent_av: bool = False  # Compute Av from column density
 
-    # Initial abundances (fractional relative to number_density)
+    # Initial abundances (fractional relative to number_density_grid[0])
     initial_abundances: dict[str, float] = field(
         default_factory=lambda: {
             "H2": 1.0,
@@ -91,9 +90,6 @@ class SimulationConfig:
     abundance_floor: float = 1e-30
 
     # Integration parameters
-    t_start: float = 0.0
-    t_end: float = 1e6  # years
-    n_snapshots: int = 1000
     solver: str = "kvaerno5"
     atol: float = 1e-18
     rtol: float = 1e-12
@@ -104,6 +100,7 @@ class SimulationConfig:
     save_abundances: bool = True
     save_derivatives: bool = False
     save_rates: bool = False
+    save_plots: bool = True
     run_name: str = "carbox_run"
 
     @classmethod
@@ -130,51 +127,75 @@ class SimulationConfig:
         with open(filepath, "w") as f:
             json.dump(self.__dict__, f, indent=2)
 
-    def compute_visual_extinction(self) -> float:
-        """Compute self-consistent visual extinction from column density.
+    def compute_visual_extinction_grid(self) -> list[float]:
+        """Compute visual extinction grid.
 
         Formula: Av = base_Av + N_H / 1.6e21
         where N_H = cloud_radius_pc * number_density (converted to cm)
 
         Returns:
         -------
-        float
-            Visual extinction [mag]
+        list[float]
+            Visual extinction grid [mag]
         """
         if not self.use_self_consistent_av:
-            return self.visual_extinction
+            return list(self.visual_extinction_grid)
 
         # Convert parsec to cm: 1 pc = 3.086e18 cm
         pc_to_cm = 3.086e18
         cloud_radius_cm = self.cloud_radius_pc * pc_to_cm
 
         # Column density: N_H = n_H * L [cm^-2]
-        column_density = cloud_radius_cm * self.number_density
+        column_density = cloud_radius_cm * jnp.array(self.number_density_grid)
 
         # Av = base_Av + N_H / 1.6e21
         av = self.base_av + column_density / 1.6e21
 
-        return av
+        return [float(value) for value in jnp.asarray(av)]
 
-    def get_physical_params_jax(self) -> dict[str, jnp.ndarray]:
-        """Get JAX arrays for physical parameters (for solver args)."""
-        # Compute Av (either fixed or self-consistent)
-        visual_extinction = self.compute_visual_extinction()
-
+    def get_physical_param_grids_jax(self) -> dict[str, jnp.ndarray]:
+        """Get JAX arrays for physical parameter grids (for solver args)."""
         return {
-            "temperature": jnp.array(self.temperature),
-            "cr_rate": jnp.array(self.cr_rate),
-            "fuv_field": jnp.array(self.fuv_field),
-            "visual_extinction": jnp.array(visual_extinction),
+            "time_grid_years": jnp.array(self.time_grid_years),
+            "number_density_grid": jnp.array(self.number_density_grid),
+            "temperature_grid": jnp.array(self.temperature_grid),
+            "cr_rate_grid": jnp.array(self.cr_rate_grid),
+            "fuv_field_grid": jnp.array(self.fuv_field_grid),
+            "visual_extinction_grid": jnp.array(self.compute_visual_extinction_grid()),
         }
+
+    def get_initial_number_density(self) -> float:
+        """Get number density at the first timepoint."""
+        return float(self.number_density_grid[0])
 
     def validate(self) -> None:
         """Basic validation of parameter ranges."""
-        assert 1e2 <= self.number_density <= 1e8, "number_density out of physical range"
-        assert 10 <= self.temperature <= 1e5, "temperature out of range"
-        # assert 1e-18 <= self.cr_rate <= 1e-12, "cr_rate out of typical range"
-        assert self.visual_extinction >= 0, "visual_extinction out of range"
-        assert self.t_end > self.t_start, "t_end must be > t_start"
+        if len(self.time_grid_years) < 2:
+            raise ValueError("time_grid_years must have at least 2 points")
+        if any(
+            t2 <= t1
+            for t1, t2 in zip(self.time_grid_years, self.time_grid_years[1:])
+        ):
+            raise ValueError("time_grid_years must be strictly increasing")
+
+        grid_lengths = {
+            "number_density_grid": len(self.number_density_grid),
+            "temperature_grid": len(self.temperature_grid),
+            "cr_rate_grid": len(self.cr_rate_grid),
+            "fuv_field_grid": len(self.fuv_field_grid),
+            "visual_extinction_grid": len(self.visual_extinction_grid),
+        }
+        expected_len = len(self.time_grid_years)
+        for name, length in grid_lengths.items():
+            if length != expected_len:
+                raise ValueError(f"{name} must match time_grid_years length")
+
+        if any(n < 1e2 or n > 1e8 for n in self.number_density_grid):
+            raise ValueError("number_density_grid out of physical range")
+        if any(t < 10 or t > 1e5 for t in self.temperature_grid):
+            raise ValueError("temperature_grid out of range")
+        if any(av < 0 for av in self.visual_extinction_grid):
+            raise ValueError("visual_extinction_grid out of range")
         assert self.solver in ["dopri5", "kvaerno5", "tsit5"], (
             f"Unknown solver: {self.solver}"
         )

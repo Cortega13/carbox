@@ -30,7 +30,7 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
     -------
     y0 : jnp.ndarray
         Initial abundance vector [# species]
-        Values in absolute abundance [cm^-3]: n_i = x_i * number_density
+        Values in absolute abundance [cm^-3]: n_i = x_i * number_density_grid[0]
 
     Notes:
     -----
@@ -38,17 +38,18 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
     - **Input (config.initial_abundances)**: Fractional abundances x_i
       (e.g., from UCLCHEM: x_i = n_i / n_H_nuclei)
     - **Output (y0)**: Absolute abundances n_i [cm^-3]
-      Conversion: n_i = x_i * number_density
+      Conversion: n_i = x_i * number_density_grid[0]
 
-    - All species start at abundance_floor * number_density
-    - Specified species are set to their fractional values * number_density
+    - All species start at abundance_floor * number_density_grid[0]
+    - Specified species are set to their fractional values * number_density_grid[0]
     - Missing species in config are kept at floor
     - Extra species in config trigger warning but don't fail
     """
     n_species = len(network.species)
 
     # Initialize all to floor (absolute abundance)
-    y0 = jnp.ones(n_species) * config.abundance_floor * config.number_density
+    initial_density = config.get_initial_number_density()
+    y0 = jnp.ones(n_species) * config.abundance_floor * initial_density
 
     # Set specified abundances (convert fractional → absolute)
     species_names = [s.name for s in network.species]
@@ -59,7 +60,7 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
         if species_name in species_names:
             idx = species_names.index(species_name)
             # Convert fractional abundance to absolute abundance
-            absolute_abundance = fractional_abundance * config.number_density
+            absolute_abundance = fractional_abundance * initial_density
             y0 = y0.at[idx].set(absolute_abundance)
         else:
             print(f"Warning: Species '{species_name}' in config not found in network")
@@ -123,6 +124,17 @@ def abundance_summary(network: Network, y0: jnp.ndarray, top_n: int = 10) -> str
     # Sort by abundance
     sorted_indices = jnp.argsort(y0)[::-1]
 
+    h2_idx = species_names.index("H2") if "H2" in species_names else None
+    h_idx = species_names.index("H") if "H" in species_names else None
+    if h2_idx is not None or h_idx is not None:
+        n_h_nuclei = 0.0
+        if h2_idx is not None:
+            n_h_nuclei += 2.0 * y0[h2_idx]
+        if h_idx is not None:
+            n_h_nuclei += y0[h_idx]
+    else:
+        n_h_nuclei = jnp.sum(y0)
+
     lines = ["Initial Abundances Summary", "=" * 40]
     lines.append(f"{'Species':<10} {'Abundance [cm^-3]':>18} {'Fractional':>12}")
     lines.append("-" * 40)
@@ -131,7 +143,7 @@ def abundance_summary(network: Network, y0: jnp.ndarray, top_n: int = 10) -> str
         idx = sorted_indices[i]
         name = species_names[idx]
         abundance = y0[idx]
-        fractional = abundance / jnp.sum(y0)
+        fractional = abundance / n_h_nuclei
         lines.append(f"{name:<10} {abundance:>18.3e} {fractional:>12.3e}")
 
     return "\n".join(lines)

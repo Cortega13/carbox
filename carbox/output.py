@@ -9,11 +9,12 @@ from pathlib import Path
 
 import diffrax as dx
 import jax.numpy as jnp
+import numpy as np
 import pandas as pd
 
 from .config import SimulationConfig
 from .network import Network
-from .solver import SPY
+from .solver import SPY, compute_dnh_dt_slopes
 
 
 def prepare_output_directory(config: SimulationConfig) -> Path:
@@ -67,27 +68,32 @@ def save_abundances(
 
     species_names = [s.name for s in network.species]
 
-    """
-    if h2_idx is not None and h_idx is not None:
-        n_h_nuclei = 2 * solution.ys[:, h2_idx] + solution.ys[:, h_idx]
-    elif h2_idx is not None:
-        n_h_nuclei = 2 * solution.ys[:, h2_idx]
-    elif h_idx is not None:
-        n_h_nuclei = solution.ys[:, h_idx]
+    number_density_grid = jnp.array(config.number_density_grid)
+    temperature_grid = jnp.array(config.temperature_grid)
+    cr_rate_grid = jnp.array(config.cr_rate_grid)
+    fuv_field_grid = jnp.array(config.fuv_field_grid)
+    visual_extinction_grid = jnp.array(config.compute_visual_extinction_grid())
+
+    h2_idx = species_names.index("H2") if "H2" in species_names else None
+    h_idx = species_names.index("H") if "H" in species_names else None
+    if solution.ys is not None and (h2_idx is not None or h_idx is not None):
+        n_h_nuclei = jnp.zeros_like(solution.ys[:, 0])
+        if h2_idx is not None:
+            n_h_nuclei = n_h_nuclei + 2.0 * solution.ys[:, h2_idx]
+        if h_idx is not None:
+            n_h_nuclei = n_h_nuclei + solution.ys[:, h_idx]
     else:
-        # Fallback to total density if no H or H2
-    """
-    n_h_nuclei = config.number_density
+        n_h_nuclei = number_density_grid
 
     # Create DataFrame with time and physical parameter columns
     data = {
         "time_seconds": solution.ts,
         "time_years": solution.ts / SPY,  # type:ignore
-        "number_density": config.number_density,
-        "temperature": config.temperature,
-        "cr_rate": config.cr_rate,
-        "fuv_field": config.fuv_field,
-        "visual_extinction": config.compute_visual_extinction(),
+        "number_density": number_density_grid,
+        "temperature": temperature_grid,
+        "cr_rate": cr_rate_grid,
+        "fuv_field": fuv_field_grid,
+        "visual_extinction": visual_extinction_grid,
     }
 
     # Add species fractional abundances (relative to H nuclei)
@@ -117,7 +123,7 @@ def save_derivatives(
     Parameters
     ----------
     derivatives : jnp.ndarray
-        Time derivatives [n_snapshots, n_species]
+        Time derivatives [n_times, n_species]
     times : jnp.ndarray
         Time array [s]
     network : Network
@@ -138,11 +144,11 @@ def save_derivatives(
     data = {
         "time_seconds": times,
         "time_years": times / SPY,
-        "number_density": config.number_density,
-        "temperature": config.temperature,
-        "cr_rate": config.cr_rate,
-        "fuv_field": config.fuv_field,
-        "visual_extinction": config.compute_visual_extinction(),
+        "number_density": jnp.array(config.number_density_grid),
+        "temperature": jnp.array(config.temperature_grid),
+        "cr_rate": jnp.array(config.cr_rate_grid),
+        "fuv_field": jnp.array(config.fuv_field_grid),
+        "visual_extinction": jnp.array(config.compute_visual_extinction_grid()),
     }
 
     # Add derivatives
@@ -169,7 +175,7 @@ def save_reaction_rates(
     Parameters
     ----------
     rates : jnp.ndarray
-        Reaction rates [n_snapshots, n_reactions]
+        Reaction rates [n_times, n_reactions]
     times : jnp.ndarray
         Time array [s]
     network : Network
@@ -191,11 +197,11 @@ def save_reaction_rates(
     data = {
         "time_seconds": times,
         "time_years": times / SPY,
-        "number_density": config.number_density,
-        "temperature": config.temperature,
-        "cr_rate": config.cr_rate,
-        "fuv_field": config.fuv_field,
-        "visual_extinction": config.visual_extinction,
+        "number_density": jnp.array(config.number_density_grid),
+        "temperature": jnp.array(config.temperature_grid),
+        "cr_rate": jnp.array(config.cr_rate_grid),
+        "fuv_field": jnp.array(config.fuv_field_grid),
+        "visual_extinction": jnp.array(config.compute_visual_extinction_grid()),
     }
 
     # Add reaction rates
@@ -243,6 +249,11 @@ def save_metadata(
     """
     output_path = prepare_output_directory(config)
 
+    # Derived physical parameters for reproducibility.
+    t_grid_sec = jnp.array(config.time_grid_years) * SPY
+    nH_grid = jnp.array(config.number_density_grid)
+    dnh_dt_slopes = compute_dnh_dt_slopes(t_grid_sec, nH_grid)
+
     metadata = {
         "timestamp": datetime.now().isoformat(),
         "run_name": config.run_name,
@@ -250,20 +261,20 @@ def save_metadata(
         # Configuration
         "config": {
             "physical_params": {
-                "number_density": config.number_density,
-                "temperature": config.temperature,
-                "cr_rate": config.cr_rate,
-                "fuv_field": config.fuv_field,
-                "visual_extinction": config.compute_visual_extinction(),
-                "visual_extinction_config": config.visual_extinction,
+                "number_density_grid": config.number_density_grid,
+                # Interval slopes dn_h/dt for each interval [t_i, t_{i+1}).
+                "dnh_dt_slopes": [float(v) for v in jnp.asarray(dnh_dt_slopes)],
+                "temperature_grid": config.temperature_grid,
+                "cr_rate_grid": config.cr_rate_grid,
+                "fuv_field_grid": config.fuv_field_grid,
+                "visual_extinction_grid": config.compute_visual_extinction_grid(),
+                "visual_extinction_config": config.visual_extinction_grid,
                 "use_self_consistent_av": config.use_self_consistent_av,
                 "cloud_radius_pc": config.cloud_radius_pc,
                 "base_av": config.base_av,
             },
             "integration": {
-                "t_start": config.t_start,
-                "t_end": config.t_end,
-                "n_snapshots": config.n_snapshots,
+                "time_grid_years": config.time_grid_years,
                 "solver": config.solver,
                 "atol": config.atol,
                 "rtol": config.rtol,
@@ -330,16 +341,29 @@ def save_summary_report(
     lines.append("")
 
     lines.append("Physical Parameters:")
-    lines.append(f"  Total density: {config.number_density:.2e} cm^-3")
-    lines.append(f"  Temperature: {config.temperature:.1f} K")
-    lines.append(f"  CR ionization rate: {config.cr_rate:.2e} s^-1")
-    lines.append(f"  FUV field: {config.fuv_field:.2e} Draine")
-    lines.append(f"  Visual extinction: {config.visual_extinction:.1f} mag")
+    density_min = min(config.number_density_grid)
+    density_max = max(config.number_density_grid)
+    temp_min = min(config.temperature_grid)
+    temp_max = max(config.temperature_grid)
+    cr_min = min(config.cr_rate_grid)
+    cr_max = max(config.cr_rate_grid)
+    fuv_min = min(config.fuv_field_grid)
+    fuv_max = max(config.fuv_field_grid)
+    av_grid = config.compute_visual_extinction_grid()
+    av_min = min(av_grid)
+    av_max = max(av_grid)
+    lines.append(f"  Total density: {density_min:.2e} - {density_max:.2e} cm^-3")
+    lines.append(f"  Temperature: {temp_min:.1f} - {temp_max:.1f} K")
+    lines.append(f"  CR ionization rate: {cr_min:.2e} - {cr_max:.2e} s^-1")
+    lines.append(f"  FUV field: {fuv_min:.2e} - {fuv_max:.2e} Draine")
+    lines.append(f"  Visual extinction: {av_min:.1f} - {av_max:.1f} mag")
     lines.append("")
 
     lines.append("Integration:")
-    lines.append(f"  Time range: {config.t_start:.2e} - {config.t_end:.2e} years")
-    lines.append(f"  Snapshots: {config.n_snapshots}")
+    lines.append(
+        f"  Time range: {config.time_grid_years[0]:.2e} - {config.time_grid_years[-1]:.2e} years"
+    )
+    lines.append(f"  Snapshots: {len(config.time_grid_years)}")
     lines.append(f"  Solver: {config.solver}")
     lines.append(f"  Tolerances: atol={config.atol:.2e}, rtol={config.rtol:.2e}")
     lines.append("")
@@ -373,4 +397,129 @@ def save_summary_report(
         f.write(report)
 
     print(f"Saved summary to: {filepath}")
+    return filepath
+
+
+def _select_impactful_species(
+    species_names: list[str],
+    abundances: jnp.ndarray,
+    max_species: int = 8,
+) -> list[str]:
+    """Pick impactful species for MHD-oriented evolution plots.
+
+    Prefer key ionization/coupling agents plus common cooling/chemistry tracers.
+    """
+    priority = [
+        "e-",
+        "H+",
+        "H3+",
+        "C+",
+        "Si+",
+        "S+",
+        "Mg+",
+        "Fe+",
+        "Na+",
+        "K+",
+        "H2",
+        "H",
+        "CO",
+        "O",
+        "O2",
+        "H2O",
+        "N2",
+        "OH",
+        "CH",
+    ]
+    chosen: list[str] = []
+    for name in priority:
+        if name in species_names:
+            chosen.append(name)
+        if len(chosen) >= max_species:
+            return chosen
+
+    # Fill remaining with the most abundant species at final time.
+    final_abundances = np.asarray(abundances)[-1]
+    sorted_indices = np.argsort(final_abundances)[::-1]
+    for idx in sorted_indices:
+        name = species_names[int(idx)]
+        if name not in chosen:
+            chosen.append(name)
+        if len(chosen) >= max_species:
+            break
+
+    return chosen
+
+
+def save_evolution_plot(
+    solution: dx.Solution,
+    network: Network,
+    config: SimulationConfig,
+) -> Path:
+    """Save a two-panel plot of physical parameters and key species evolution."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    output_path = prepare_output_directory(config)
+
+    time_years = np.asarray(solution.ts) / SPY  # type:ignore
+    number_density = np.asarray(config.number_density_grid)
+    temperature = np.asarray(config.temperature_grid)
+    cr_rate = np.asarray(config.cr_rate_grid)
+    fuv_field = np.asarray(config.fuv_field_grid)
+    visual_extinction = np.asarray(config.compute_visual_extinction_grid())
+
+    species_names = [s.name for s in network.species]
+    h2_idx = species_names.index("H2") if "H2" in species_names else None
+    h_idx = species_names.index("H") if "H" in species_names else None
+    if solution.ys is None:
+        raise ValueError("Solution missing abundances for plotting.")
+    if h2_idx is not None or h_idx is not None:
+        n_h_nuclei = np.zeros_like(solution.ys[:, 0])
+        if h2_idx is not None:
+            n_h_nuclei = n_h_nuclei + 2.0 * solution.ys[:, h2_idx]
+        if h_idx is not None:
+            n_h_nuclei = n_h_nuclei + solution.ys[:, h_idx]
+    else:
+        n_h_nuclei = number_density
+    abundances = np.asarray(solution.ys) / n_h_nuclei[:, None]
+
+    key_species = _select_impactful_species(species_names, abundances)
+    key_indices = [species_names.index(name) for name in key_species]
+
+    fig, (ax_top, ax_bottom) = plt.subplots(
+        2, 1, figsize=(10, 8), sharex=True, constrained_layout=True
+    )
+
+    # Top: physical parameter evolution
+    av_plot = np.clip(visual_extinction, 1e-6, None)
+    ax_top.plot(time_years, number_density, label="n_H [cm^-3]")
+    ax_top.plot(time_years, temperature, label="T [K]")
+    ax_top.plot(time_years, cr_rate, label="CR rate [s^-1]")
+    ax_top.plot(time_years, fuv_field, label="FUV [Draine]")
+    ax_top.plot(time_years, av_plot, label="A_V [mag]")
+    ax_top.set_yscale("log")
+    ax_top.set_ylabel("Physical Parameters (log)")
+    ax_top.grid(True, which="both", linestyle="--", alpha=0.4)
+    ax_top.legend(loc="best")
+
+    # Bottom: abundances of key species
+    for name, idx in zip(key_species, key_indices):
+        ax_bottom.plot(time_years, abundances[:, idx], label=name)
+    ax_bottom.set_yscale("log")
+    ax_bottom.set_xlabel("Time [years]")
+    ax_bottom.set_ylabel("Fractional Abundance (log)")
+    ax_bottom.grid(True, which="both", linestyle="--", alpha=0.4)
+    ax_bottom.legend(loc="best", ncol=2)
+
+    if time_years.min() > 0:
+        ax_top.set_xscale("log")
+        ax_bottom.set_xscale("log")
+
+    filepath = output_path / f"{config.run_name}_evolution.png"
+    fig.savefig(filepath, dpi=200)
+    plt.close(fig)
+
+    print(f"Saved evolution plot to: {filepath}")
     return filepath

@@ -1,6 +1,4 @@
-"""
-Pytest configuration for Carbox tests.
-"""
+"""Pytest configuration for Carbox tests."""
 
 import sys
 from pathlib import Path

@@ -9,9 +9,9 @@ From Python:
     from carbox.config import SimulationConfig
 
     config = SimulationConfig(
-        number_density=1e4,
-        temperature=50.0,
-        t_end=1e6,
+        time_grid_years=[0.0, 1e6],
+        number_density_grid=[1e4, 1e4],
+        temperature_grid=[50.0, 50.0],
     )
     run_simulation('network_files/network.csv', config, format_type='latent_tgas')
 
@@ -36,6 +36,7 @@ from .initial_conditions import (
 from .output import (
     save_abundances,
     save_derivatives,
+    save_evolution_plot,
     save_metadata,
     save_reaction_rates,
     save_summary_report,
@@ -86,7 +87,7 @@ def run_simulation(
 
     Examples:
     --------
-    >>> config = SimulationConfig(number_density=1e4, t_end=1e5)
+    >>> config = SimulationConfig(time_grid_years=[0.0, 1e5])
     >>> results = run_simulation("network_files/network.csv", config)
     """
     start_time = datetime.now()
@@ -142,8 +143,10 @@ def run_simulation(
     # Step 4: Solve ODE
     if verbose:
         print(f"Solving ODE system with {config.solver}...")
-        print(f"  Time range: {config.t_start:.2e} - {config.t_end:.2e} years")
-        print(f"  Snapshots: {config.n_snapshots}")
+        print(
+            f"  Time range: {config.time_grid_years[0]:.2e} - {config.time_grid_years[-1]:.2e} years"
+        )
+        print(f"  Snapshots: {len(config.time_grid_years)}")
         print("  Compiling solver (first call)...")
 
     solve_start = datetime.now()
@@ -191,6 +194,10 @@ def run_simulation(
             print("  Computing reaction rates...")
         rates = compute_reaction_rates(network, jnetwork, solution, config)
         save_reaction_rates(rates, solution.ts, network, config)
+
+    # Optional: evolution plot
+    if config.save_plots:
+        save_evolution_plot(solution, network, config)
 
     # Save metadata and summary
     save_metadata(config, network, solution, computation_time)

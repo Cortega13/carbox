@@ -67,6 +67,7 @@ class JNetwork(eqx.Module):
         self,
         time: Array,
         abundances: Array,
+        dlnnH_dt: Array,
         temperature: Array,
         # density: jnp.array,
         cr_rate: Array,
@@ -82,10 +83,14 @@ class JNetwork(eqx.Module):
         # jax.debug.print("rates: {rates}", rates=rates)
         # Get the matrix that encodes the reactants that need to be multiplied to get the flux
         rates = self.multiply_rates_by_abundance(rates, abundances)
-        # Calculate the change in abundances
+        # Calculate the change in abundances from chemistry.
         # TODO: check that we are not loosing too much precision with the matmul?
         # Use BCCOO to avoid conversion to dense
-        return self.incidence @ rates
+        dn_dt_chem = self.incidence @ rates
+
+        # Add uniform compression/dilution term from evolving n_H(t):
+        # dn_i/dt += n_i * d(ln n_H)/dt
+        return dn_dt_chem + abundances * dlnnH_dt
         # Regular implmentation with dense matrix and highest precision
         # return jnp.matmul(self.incidence, rates, precision=jax.lax.Precision.HIGHEST)
 
