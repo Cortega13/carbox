@@ -54,6 +54,12 @@ def run_simulation(
     config: SimulationConfig,
     format_type: NetworkNames | None = None,
     verbose: bool = True,
+    *,
+    parser_kwargs: dict[str, Any] | None = None,
+    network: Any | None = None,
+    y0_override: Any | None = None,
+    save_outputs: bool = True,
+    validate_config: bool = True,
 ) -> dict[str, Any]:
     """Run a chemical kinetics simulation.
 
@@ -101,14 +107,18 @@ def run_simulation(
         print()
 
     # Validate configuration
-    if verbose:
-        print("Validating configuration...")
-    config.validate()
+    if validate_config:
+        if verbose:
+            print("Validating configuration...")
+        config.validate()
 
     # Step 1: Load network
     if verbose:
         print(f"Loading reaction network from {network_file}...")
-    network = parse_chemical_network(network_file, format_type)
+    if parser_kwargs is None:
+        parser_kwargs = {}
+    if network is None:
+        network = parse_chemical_network(network_file, format_type, **parser_kwargs)
     if verbose:
         print(f"  Loaded {len(network.species)} species")
         print(f"  Loaded {len(network.reactions)} reactions")
@@ -117,7 +127,10 @@ def run_simulation(
     # Step 2: Initialize abundances
     if verbose:
         print("Initializing abundances...")
-    y0 = initialize_abundances(network, config)
+    if y0_override is not None:
+        y0 = y0_override
+    else:
+        y0 = initialize_abundances(network, config, verbose=verbose)
 
     if verbose:
         print(abundance_summary(network, y0, top_n=8))
@@ -177,31 +190,32 @@ def run_simulation(
 
     computation_time = (datetime.now() - start_time).total_seconds()
 
-    # Always save abundances
-    if config.save_abundances:
-        save_abundances(solution, network, config)
+    if save_outputs:
+        # Always save abundances
+        if config.save_abundances:
+            save_abundances(solution, network, config)
 
-    # Optional: derivatives
-    if config.save_derivatives:
-        if verbose:
-            print("  Computing derivatives...")
-        derivatives = compute_derivatives(jnetwork, solution, config)
-        save_derivatives(derivatives, solution.ts, network, config)
+        # Optional: derivatives
+        if config.save_derivatives:
+            if verbose:
+                print("  Computing derivatives...")
+            derivatives = compute_derivatives(jnetwork, solution, config)
+            save_derivatives(derivatives, solution.ts, network, config)
 
-    # Optional: reaction rates
-    if config.save_rates:
-        if verbose:
-            print("  Computing reaction rates...")
-        rates = compute_reaction_rates(network, jnetwork, solution, config)
-        save_reaction_rates(rates, solution.ts, network, config)
+        # Optional: reaction rates
+        if config.save_rates:
+            if verbose:
+                print("  Computing reaction rates...")
+            rates = compute_reaction_rates(network, jnetwork, solution, config)
+            save_reaction_rates(rates, solution.ts, network, config)
 
-    # Optional: evolution plot
-    if config.save_plots:
-        save_evolution_plot(solution, network, config)
+        # Optional: evolution plot
+        if config.save_plots:
+            save_evolution_plot(solution, network, config)
 
-    # Save metadata and summary
-    save_metadata(config, network, solution, computation_time)
-    save_summary_report(solution, network, config)
+        # Save metadata and summary
+        save_metadata(config, network, solution, computation_time)
+        save_summary_report(solution, network, config)
 
     if verbose:
         print()

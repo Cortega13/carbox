@@ -14,3 +14,5 @@ benchmarks/cosmicai/data/
 outputs/
 notebooks/analysis/plots/
 docs/*.md
+
+scripts/analysis/plots/*

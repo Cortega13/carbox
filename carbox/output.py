@@ -410,25 +410,18 @@ def _select_impactful_species(
     Prefer key ionization/coupling agents plus common cooling/chemistry tracers.
     """
     priority = [
-        "e-",
-        "H+",
-        "H3+",
-        "C+",
-        "Si+",
-        "S+",
-        "Mg+",
-        "Fe+",
-        "Na+",
-        "K+",
         "H2",
-        "H",
         "CO",
+        "C",
+        "C+",
         "O",
-        "O2",
+        "H3+",
+        "HCO+",
+        "H3O+",
+        "E-",
+        "MG+",
         "H2O",
-        "N2",
         "OH",
-        "CH",
     ]
     chosen: list[str] = []
     for name in priority:

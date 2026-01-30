@@ -4,6 +4,7 @@ import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,6 +36,14 @@ class TracerData:
     abundances: np.ndarray
 
 
+class TracerPair(NamedTuple):
+    """Small/large network outputs for one tracer id."""
+
+    tracer_id: int
+    small: TracerData
+    large: TracerData
+
+
 def safe_log(values: np.ndarray) -> np.ndarray:
     """Return log10 with floor to avoid zeros."""
     return np.log10(np.clip(values, 1e-30, None))
@@ -46,11 +55,19 @@ def parse_tracer_file(path: Path) -> TracerData:
     columns = list(payload["columns"])
     data = np.asarray(payload["data"], dtype=float)
     tracer_id = int(path.stem.split("_")[1])
+
+    time_key = "time_years" if "time_years" in columns else "time"
+    physical_keys = ["density", "temperature", "av", "rad_field"]
+    time = data[:, columns.index(time_key)]
     physical_keys = ["density", "temperature", "av", "rad_field"]
     physical = {key: data[:, columns.index(key)] for key in physical_keys}
-    species = columns[5:]
-    abundances = data[:, 5:]
-    return TracerData(tracer_id, data[:, 0], physical, list(species), abundances)
+
+    # Expected layout from benchmark runner:
+    # time_years, density, temperature, av, rad_field, <species...>
+    species_start = 5
+    species = columns[species_start:]
+    abundances = data[:, species_start:]
+    return TracerData(tracer_id, time, physical, list(species), abundances)
 
 
 def build_global_species_list(tracers: Sequence[TracerData], count: int) -> list[str]:
@@ -109,39 +126,69 @@ def build_color_map(species: Sequence[str]) -> dict[str, str]:
 
 
 def render_tracer_plot(
-    tracer: TracerData,
+    tracer_pair: TracerPair,
     species_names: Sequence[str],
     output_dir: Path,
     colors: dict[str, str],
 ) -> Path:
-    """Create and save tracer plots."""
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
-    plot_physical(axes[0], tracer)
-    plot_abundances(axes[1], tracer, species_names, colors)
-    axes[0].set_title(f"Tracer {tracer.tracer_id}")
+    """Create and save tracer plots (physical + small + large abundances)."""
+    fig, axes = plt.subplots(3, 1, figsize=(10, 11), sharex=True)
+
+    # Top: physical parameters (use small output; should match large in practice).
+    plot_physical(axes[0], tracer_pair.small)
+    axes[0].set_title(f"Tracer {tracer_pair.tracer_id}")
+
+    # Middle: small network
+    plot_abundances(axes[1], tracer_pair.small, species_names, colors)
+    axes[1].set_title("Small network")
+
+    # Bottom: large network
+    plot_abundances(axes[2], tracer_pair.large, species_names, colors)
+    axes[2].set_title("Large network")
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"tracer_{tracer.tracer_id}.png"
+    output_path = output_dir / f"tracer_{tracer_pair.tracer_id}.png"
     fig.tight_layout()
     fig.savefig(output_path, dpi=150)
     plt.close(fig)
     return output_path
 
 
-def gather_tracer_paths(input_dir: Path) -> list[Path]:
-    """List tracer npy files."""
-    return sorted(input_dir.glob("tracer_*.npy"))
+def gather_tracer_pairs(input_dir: Path) -> list[tuple[Path, Path]]:
+    """Return matched (small_path, large_path) pairs for each tracer id."""
+    small_paths = sorted(input_dir.glob("tracer_*_small.npy"))
+    large_by_id: dict[int, Path] = {}
+    for path in input_dir.glob("tracer_*_large.npy"):
+        tracer_id = int(path.stem.split("_")[1])
+        large_by_id[tracer_id] = path
+
+    pairs: list[tuple[Path, Path]] = []
+    for small_path in small_paths:
+        tracer_id = int(small_path.stem.split("_")[1])
+        large_path = large_by_id.get(tracer_id)
+        if large_path is None:
+            continue
+        pairs.append((small_path, large_path))
+    return pairs
 
 
 def process_tracers(input_dir: Path, output_dir: Path, count: int) -> None:
     """Generate plots for all tracers found."""
-    paths = gather_tracer_paths(input_dir)
-    if not paths:
+    pairs = gather_tracer_pairs(input_dir)
+    if not pairs:
         return
-    tracers = [parse_tracer_file(path) for path in paths]
+
+    tracer_pairs: list[TracerPair] = []
+    for small_path, large_path in pairs:
+        small = parse_tracer_file(small_path)
+        large = parse_tracer_file(large_path)
+        tracer_pairs.append(TracerPair(small.tracer_id, small, large))
+
+    # Species choice: keep fixed list for consistency across plots.
     species_names = PLOT_SPECIES
     colors = build_color_map(species_names)
-    for tracer in tracers:
-        render_tracer_plot(tracer, species_names, output_dir, colors)
+    for pair in tracer_pairs:
+        render_tracer_plot(pair, species_names, output_dir, colors)
 
 
 def parse_args() -> argparse.Namespace:

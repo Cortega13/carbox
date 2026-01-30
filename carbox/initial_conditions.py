@@ -9,7 +9,9 @@ from .config import SimulationConfig
 from .network import Network
 
 
-def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.ndarray:
+def initialize_abundances(
+    network: Network, config: SimulationConfig, verbose: bool = True
+) -> jnp.ndarray:
     """Initialize abundance vector from configuration.
 
     Converts fractional abundances (from config/YAML) to absolute abundances.
@@ -54,16 +56,20 @@ def initialize_abundances(network: Network, config: SimulationConfig) -> jnp.nda
     # Set specified abundances (convert fractional → absolute)
     species_names = [s.name for s in network.species]
     for species_name, fractional_abundance in config.initial_abundances.items():
-        print(
-            f"Setting initial abundance for {species_name}: {fractional_abundance:.3e} (fractional)"
-        )
+        if verbose:
+            print(
+                f"Setting initial abundance for {species_name}: {fractional_abundance:.3e} (fractional)"
+            )
         if species_name in species_names:
             idx = species_names.index(species_name)
             # Convert fractional abundance to absolute abundance
             absolute_abundance = fractional_abundance * initial_density
             y0 = y0.at[idx].set(absolute_abundance)
         else:
-            print(f"Warning: Species '{species_name}' in config not found in network")
+            if verbose:
+                print(
+                    f"Warning: Species '{species_name}' in config not found in network"
+                )
 
     return y0
 

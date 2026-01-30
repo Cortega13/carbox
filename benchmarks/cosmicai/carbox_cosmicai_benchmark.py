@@ -1,263 +1,67 @@
-"""Run CosmicAI tracer benchmarks with joblib or single-CSV mode."""
+"""Run a single CosmicAI tracer through Carbox (CSV-only, small→large).
 
-# Examples:
-# python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --output-dir outputs --random-count=10
-# python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --tracer-csv benchmarks/cosmicai/data/turbulence_tracers_csv/tracer_630.csv --output-dir outputs
+python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --tracer-csv benchmarks/cosmicai/data/turbulence_tracers_csv/tracer_38446.csv
+"""
+
+from __future__ import annotations
 
 import argparse
-import os
-from collections.abc import Sequence
-from dataclasses import dataclass
+import sys
 from pathlib import Path
 from time import time
-from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import yaml
-from joblib import Parallel, cpu_count, delayed
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from carbox.config import SimulationConfig
 from carbox.initial_conditions import initialize_abundances
-from carbox.network import Network
+from carbox.main import run_simulation
 from carbox.parsers import NetworkNames, parse_chemical_network
-from carbox.solver import solve_network
 
-# Constants ported from run_carbox_benchmark.py
-SPOOFED_INITIAL_TIME = 1e4
+# -----------------
+# Globals (no CLI)
+# -----------------
+
+SPOOFED_INITIAL_TIME_YR = 1e5
 KYR_TO_YR = 1000.0
-YEAR_TO_SEC = 3.15576e7
+
 RADFIELD_FACTOR = 1.7
-ELEMENTS = ["H", "HE", "C", "N", "O", "S", "SI", "FE", "MG", "NA", "CL", "P", "F"]
-DEFAULT_TRACER_DIR = Path("benchmarks/cosmicai/data/turbulence_tracers_csv")
+CR_RATE_DEFAULT = 1.6e-17
+
+ATOL = 1e-15
+RTOL = 1e-6
+MAX_STEPS = 80000
+
+FRACTION_FLOOR = 1e-24
+START_IDX = 1  # drop t=0 snapshot; start from post-spoof state
+
 NETWORK_PATH = Path("network_files/uclchem_small_chemistry.csv")
 LARGE_NETWORK_PATH = Path("network_files/uclchem_gas_phase_only.csv")
 INITIAL_PATH = Path("benchmarks/initial_conditions/small_chemistry_initial.yaml")
 
-# Global cache for worker processes
-_WORKER_CACHE = {}
-_SEED = 14
+
+def build_time_years(times_kyr: np.ndarray) -> np.ndarray:
+    """Convert kyr grid to years and add spoof step."""
+    times_kyr = np.asarray(times_kyr, dtype=float)
+    out = np.zeros_like(times_kyr)
+    out[0] = 0.0
+    out[1] = SPOOFED_INITIAL_TIME_YR
+    if len(out) > 2:
+        out[2:] = out[1] + np.cumsum(np.diff(times_kyr)[1:] * KYR_TO_YR)
+    return out
 
 
-@dataclass
-class NetworkAssets:
-    """Cached network resources."""
-
-    network: Network
-    jnetwork: Any
-    template: np.ndarray
-    species_names: list[str]
-
-
-def parse_element_counts(name: str, elements: Sequence[str]) -> dict[str, int]:
-    """Return elemental counts for a species name."""
-    counts: dict[str, int] = {}
-    index = 0
-    while index < len(name):
-        two_letter = name[index : index + 2]
-        one_letter = name[index]
-        if two_letter in elements:
-            value = 1
-            if index + 2 < len(name) and name[index + 2].isdigit():
-                value = int(name[index + 2])
-                index += 1
-            counts[two_letter] = counts.get(two_letter, 0) + value
-            index += 2
-            continue
-        if one_letter in elements:
-            value = 1
-            if index + 1 < len(name) and name[index + 1].isdigit():
-                value = int(name[index + 1])
-                index += 1
-            counts[one_letter] = counts.get(one_letter, 0) + value
-        index += 1
-    return counts
-
-
-def build_stoichiometric_matrix(network_species, elements: Sequence[str]) -> np.ndarray:
-    """Build stoichiometric matrix mapping species to elements."""
-    matrix = np.zeros((len(elements), len(network_species)))
-    for column, species in enumerate(network_species):
-        name = species.name
-        if name in ["E-", "ELECTR"]:
-            continue
-        composition = parse_element_counts(
-            name.replace("+", "").replace("-", ""), elements
-        )
-        for row, element in enumerate(elements):
-            if element in composition:
-                matrix[row, column] = composition[element]
-    return matrix
-
-
-def build_time_axis(orig_times: np.ndarray) -> np.ndarray:
-    """Return stretched time axis with spoofed initialization."""
-    new_times = np.zeros_like(orig_times, dtype=float)
-    new_times[0] = 0.0
-    new_times[1] = SPOOFED_INITIAL_TIME
-    deltas = np.diff(orig_times) * KYR_TO_YR
-    if len(new_times) > 2:
-        new_times[2:] = new_times[1] + np.cumsum(deltas[1:])
-    return new_times
-
-
-def load_initial_abundances(path: Path) -> dict[str, float]:
-    """Load initial abundances from YAML."""
-    with open(path) as handle:
-        data = yaml.safe_load(handle)
-    return data["abundances"]
-
-
-def load_network_assets(
-    network_path: Path, initial_abundances: dict[str, float]
-) -> NetworkAssets:
-    """Load chemical network and compiled ODE system."""
-    network = parse_chemical_network(
-        str(network_path), format_type=NetworkNames.uclchem
-    )
-    jnetwork = network.get_ode()
-
-    # Build unit-density abundance template
-    config = SimulationConfig(
-        number_density=[1.0],
-        temperature=[10.0],
-        initial_abundances=initial_abundances,
-    )
-    template = initialize_abundances(network, config)
-    species_names = [s.name for s in network.species]
-
-    return NetworkAssets(
-        network=network,
-        jnetwork=jnetwork,
-        template=template,
-        species_names=species_names,
-    )
-
-
-def get_cached_assets():
-    """Load and cache network assets for the worker process."""
-    if "assets" not in _WORKER_CACHE:
-        initial_abundances = load_initial_abundances(INITIAL_PATH)
-        _WORKER_CACHE["assets"] = {
-            "small": load_network_assets(NETWORK_PATH, initial_abundances),
-            "large": load_network_assets(LARGE_NETWORK_PATH, initial_abundances),
-        }
-    return _WORKER_CACHE["assets"]
-
-
-@dataclass
-class BenchmarkSpec:
-    """Benchmark source metadata."""
-
-    path: Path
-    timestep_kyr: float
-    clip: int
-    discretization: int
-
-
-@dataclass
-class TracerDataset:
-    """Tracer frame with identifier."""
-
-    tracer_id: int
-    frame: pd.DataFrame
-
-
-DEFAULT_BENCHMARK_SPEC = BenchmarkSpec(
-    path=Path("benchmarks/cosmicai/data/M600_seed1_trace_cells.npy"),
-    timestep_kyr=8.299,
-    clip=400,
-    discretization=1,
-)
-
-
-def density_to_number_density(density: np.ndarray) -> np.ndarray:
-    """Convert mass density to number density."""
-    hydrogen_mass = 1.66053906660e-24
-    mean_molecular_mass = 1.4168138025
-    return density / (mean_molecular_mass * hydrogen_mass)
-
-
-def get_benchmark_spec(
-    benchmark: str,
-    npy_path: Path | None,
-    timestep: float | None,
-    clip: int | None,
-    discretization: int,
-) -> BenchmarkSpec:
-    """Resolve benchmark specification."""
-    if benchmark != "M600_1":
-        raise ValueError(f"Unsupported benchmark {benchmark}")
-    base = DEFAULT_BENCHMARK_SPEC
-    return BenchmarkSpec(
-        path=npy_path or base.path,
-        timestep_kyr=timestep if timestep is not None else base.timestep_kyr,
-        clip=clip if clip is not None else base.clip,
-        discretization=discretization,
-    )
-
-
-def build_tracer_frame(
-    data: np.ndarray, tracer_index: int, spec: BenchmarkSpec
-) -> pd.DataFrame:
-    """Build a tracer DataFrame from array data."""
-    if tracer_index < 0 or tracer_index >= data.shape[1]:
-        raise ValueError(f"Tracer index {tracer_index} out of range")
-    clip_limit = spec.clip if spec.clip > 0 else data.shape[0]
-    tracer_slice = np.array(
-        data[: clip_limit : spec.discretization, tracer_index, :], dtype=float
-    )
-    frame = pd.DataFrame(
-        tracer_slice,
-        columns=[
-            "density",
-            "gasTemp",
-            "av",
-            "PI_Rad",
-            "radField",
-            "NUV_Rad",
-            "NIR_Rad",
-            "IR_Rad",
-        ],
-    )
-    frame["density"] = density_to_number_density(frame["density"].to_numpy())
-    frame["time"] = np.arange(len(frame)) * spec.timestep_kyr * spec.discretization
-    frame["tracer"] = tracer_index
-    return frame[["tracer", "time", "gasTemp", "density", "av", "radField"]]
-
-
-def load_tracers(args: argparse.Namespace) -> list[TracerDataset]:
-    """Load tracer datasets from NPY source."""
-    if args.tracer_csv:
-        return [load_tracer_csv(args.tracer_csv)]
-
-    spec = get_benchmark_spec(
-        args.benchmark, args.npy_path, args.timestep, args.clip, args.discretization
-    )
-    data = np.load(spec.path, mmap_mode="r")
-
-    if args.random_count:
-        rng = np.random.default_rng(_SEED)
-        tracer_indices = rng.choice(
-            data.shape[1],
-            size=min(args.random_count, data.shape[1]),
-            replace=False,
-        ).tolist()
-    else:
-        tracer_indices = args.tracers
-
-    datasets = []
-    for idx in tracer_indices:
-        frame = build_tracer_frame(data, idx, spec)
-        datasets.append(TracerDataset(tracer_id=idx, frame=frame))
-    return datasets
-
-
-def load_tracer_csv(path: Path) -> TracerDataset:
-    """Load tracer dataset from a CSV file."""
+def load_tracer_csv(path: Path) -> tuple[int, pd.DataFrame]:
+    """Load a tracer CSV and return (tracer_id, normalized dataframe)."""
     frame = pd.read_csv(path)
-    missing = {"time", "gasTemp", "density", "av", "radField"} - set(frame.columns)
+    required = {"time", "gasTemp", "density", "av", "radField"}
+    missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"Tracer CSV missing columns: {sorted(missing)}")
 
@@ -269,258 +73,194 @@ def load_tracer_csv(path: Path) -> TracerDataset:
         frame = frame.copy()
         frame["tracer"] = tracer_id
 
-    frame = frame[["tracer", "time", "gasTemp", "density", "av", "radField"]]
-    return TracerDataset(tracer_id=tracer_id, frame=frame)
+    cols = ["tracer", "time", "gasTemp", "density", "av", "radField"]
+    return tracer_id, frame[cols]
 
 
-def compute_fractional_abundances(
-    abundances: np.ndarray, network: Network
+def make_config(
+    time_years: np.ndarray,
+    density: np.ndarray,
+    temp: np.ndarray,
+    av: np.ndarray,
+    fuv: np.ndarray,
+    initial_abundances: dict[str, float],
+) -> SimulationConfig:
+    """Create a `SimulationConfig` for a tracer time series."""
+    return SimulationConfig(
+        time_grid_years=time_years.tolist(),
+        number_density_grid=density.tolist(),
+        temperature_grid=temp.tolist(),
+        visual_extinction_grid=av.tolist(),
+        fuv_field_grid=fuv.tolist(),
+        cr_rate_grid=(np.ones_like(density) * CR_RATE_DEFAULT).tolist(),
+        initial_abundances=initial_abundances,
+        solver="kvaerno5",
+        atol=ATOL,
+        rtol=RTOL,
+        max_steps=MAX_STEPS,
+    )
+
+
+def to_fractional(
+    ys: np.ndarray, species_names: list[str], number_density_grid: np.ndarray
 ) -> np.ndarray:
-    """Convert species abundances to fractions relative to H nuclei."""
-    matrix = build_stoichiometric_matrix(network.species, ELEMENTS)
-    elemental = abundances @ matrix.T
-    hydrogen_index = ELEMENTS.index("H")
-    hydrogen = np.clip(elemental[..., hydrogen_index], 1e-18, None)
-    fractions = abundances / hydrogen[..., None]
-    return np.clip(fractions, 1e-18, None)
+    """Convert absolute abundances to fractional via n_H,nuclei = 2H2 + H."""
+    h2_idx = species_names.index("H2") if "H2" in species_names else None
+    h_idx = species_names.index("H") if "H" in species_names else None
+
+    if h2_idx is None and h_idx is None:
+        denom = np.asarray(number_density_grid, dtype=float)
+    else:
+        denom = np.zeros(ys.shape[0], dtype=float)
+        if h2_idx is not None:
+            denom += 2.0 * ys[:, h2_idx]
+        if h_idx is not None:
+            denom += ys[:, h_idx]
+
+    denom = np.clip(denom, FRACTION_FLOOR, None)
+    return np.clip(ys / denom[:, None], FRACTION_FLOOR, None)
 
 
 def save_tracer_output(
     tracer_id: int,
-    time_grid: np.ndarray,
-    abundances: np.ndarray,
-    densities: np.ndarray,
-    temperatures: np.ndarray,
-    avs: np.ndarray,
-    rad_fields: np.ndarray,
-    species_names: Sequence[str],
+    time_years: np.ndarray,
+    frac_abundances: np.ndarray,
+    density: np.ndarray,
+    temp: np.ndarray,
+    av: np.ndarray,
+    fuv: np.ndarray,
+    species_names: list[str],
     output_dir: Path,
-    label: str | None = None,
+    label: str,
 ) -> Path:
-    """Save tracer outputs to npy."""
+    """Save tracer evolution to a `.npy` payload with fractional abundances."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    columns = ["time", "density", "temperature", "av", "rad_field"] + list(
+    columns = ["time_years", "density", "temperature", "av", "rad_field"] + list(
         species_names
     )
-    matrix = np.column_stack(
-        [time_grid, densities, temperatures, avs, rad_fields, abundances]
-    )
-    payload = {"columns": np.array(columns, dtype=object), "data": matrix}
-    suffix = f"_{label}" if label else ""
-    output_path = output_dir / f"tracer_{tracer_id}{suffix}.npy"
-    np.save(output_path, payload, allow_pickle=True)  # type: ignore
-    return output_path
+    data = np.column_stack([time_years, density, temp, av, fuv, frac_abundances])
+    payload = {"columns": np.array(columns, dtype=object), "data": data}
+    path = output_dir / f"tracer_{tracer_id}_{label}.npy"
+    np.save(path, payload, allow_pickle=True)  # type: ignore
+    return path
 
 
-def map_abundances_between_networks(
-    source_names: Sequence[str],
+def map_abundances(
+    source_names: list[str],
     source_values: np.ndarray,
-    target_names: Sequence[str],
-    base_values: np.ndarray,
+    target_names: list[str],
+    target_base: np.ndarray,
 ) -> np.ndarray:
-    """Transfer abundances from source species list into target."""
-    lookup = {name: idx for idx, name in enumerate(source_names)}
-    mapped = np.array(base_values, copy=True)
-    for target_idx, target_name in enumerate(target_names):
-        if target_name in lookup:
-            mapped[target_idx] = source_values[lookup[target_name]]
-    return mapped
+    """Map overlapping species abundances from one network ordering to another."""
+    lookup = {name: i for i, name in enumerate(source_names)}
+    out = np.array(target_base, copy=True)
+    for j, name in enumerate(target_names):
+        if name in lookup:
+            out[j] = source_values[lookup[name]]
+    return out
 
 
-def process_tracer(tracer: TracerDataset, output_dir: Path, solver_name: str) -> float:
-    """Run solver for a single tracer and save results."""
-    try:
-        start_time = time()
+def run_tracer(frame: pd.DataFrame, output_dir: Path) -> float:
+    """Run the small→large workflow for one tracer and write outputs."""
+    t0 = time()
+    with INITIAL_PATH.open() as handle:
+        initial = yaml.safe_load(handle)["abundances"]
 
-        # Retrieve cached assets (loaded once per worker process)
-        assets = get_cached_assets()
-        small_assets = assets["small"]
-        large_assets = assets["large"]
+    times_years = build_time_years(frame["time"].to_numpy())
+    dens = frame["density"].to_numpy(dtype=float)
+    temp = frame["gasTemp"].to_numpy(dtype=float)
+    av = frame["av"].to_numpy(dtype=float)
+    fuv = frame["radField"].to_numpy(dtype=float) * RADFIELD_FACTOR
 
-        # Prepare arrays
-        frame = tracer.frame
-        orig_times = frame["time"].to_numpy(dtype=float)
-        time_grid = build_time_axis(orig_times)
-        densities = frame["density"].to_numpy(dtype=float)
-        temps = frame["gasTemp"].to_numpy(dtype=float)
-        avs = frame["av"].to_numpy(dtype=float)
-        rad_fields = frame["radField"].to_numpy(dtype=float)
-        rad_fields = rad_fields * RADFIELD_FACTOR
+    # ---- small ----
+    config_small = make_config(times_years, dens, temp, av, fuv, initial)
+    small = run_simulation(
+        str(NETWORK_PATH),
+        config_small,
+        format_type=NetworkNames.uclchem,
+        verbose=False,
+        save_outputs=False,
+        validate_config=False,
+    )
+    net_small = small["network"]
+    ys_small = np.asarray(small["solution"].ys)
+    small_names = [s.name for s in net_small.species]
+    frac_small = to_fractional(ys_small, small_names, dens)
 
-        # Initial state
-        # Solver expects fractional abundances; physical density is supplied separately.
-        y0_small = small_assets.template
+    save_tracer_output(
+        int(frame["tracer"].iloc[0]),
+        times_years[START_IDX:],
+        frac_small[START_IDX:],
+        dens[START_IDX:],
+        temp[START_IDX:],
+        av[START_IDX:],
+        fuv[START_IDX:],
+        small_names,
+        output_dir,
+        label="small",
+    )
 
-        # Create SimulationConfig for this tracer
-        # Convert time grid to seconds for the solver
-        physics_t_seconds = time_grid * YEAR_TO_SEC
+    # ---- large ----
+    times2 = times_years[START_IDX:]
+    dens2, temp2, av2, fuv2 = (
+        dens[START_IDX:],
+        temp[START_IDX:],
+        av[START_IDX:],
+        fuv[START_IDX:],
+    )
+    config_large = make_config(times2, dens2, temp2, av2, fuv2, initial)
 
-        config_small = SimulationConfig(
-            number_density=densities.tolist(),
-            temperature=temps.tolist(),
-            visual_extinction=avs.tolist(),
-            fuv_field=rad_fields.tolist(),
-            cr_rate=(jnp.ones_like(densities) * 1.6e-17).tolist(),
-            physics_t=physics_t_seconds.tolist(),
-            solver=solver_name,
-            atol=1e-14,
-            rtol=1e-5,
-            max_steps=80000,
-        )
+    net_large = parse_chemical_network(
+        str(LARGE_NETWORK_PATH), format_type=NetworkNames.uclchem
+    )
+    large_names = [s.name for s in net_large.species]
+    y0_base = np.asarray(initialize_abundances(net_large, config_large, verbose=False))
+    y0_large = map_abundances(small_names, ys_small[START_IDX], large_names, y0_base)
 
-        # Solve small network to get post-spoof chemistry
-        solution_small = solve_network(small_assets.jnetwork, y0_small, config_small)
+    large = run_simulation(
+        str(LARGE_NETWORK_PATH),
+        config_large,
+        format_type=NetworkNames.uclchem,
+        verbose=False,
+        network=net_large,
+        y0_override=jnp.asarray(y0_large),
+        save_outputs=False,
+        validate_config=False,
+    )
+    ys_large = np.asarray(large["solution"].ys)
+    frac_large = to_fractional(ys_large, large_names, dens2)
 
-        # Process results
-        ys_small = np.asarray(solution_small.ys)
-        fractional_small = compute_fractional_abundances(ys_small, small_assets.network)
+    save_tracer_output(
+        int(frame["tracer"].iloc[0]),
+        times2,
+        frac_large,
+        dens2,
+        temp2,
+        av2,
+        fuv2,
+        large_names,
+        output_dir,
+        label="large",
+    )
 
-        # Drop the spoofed t=0 snapshot so both networks start from the post-spoof state
-        start_idx = 1
-
-        save_tracer_output(
-            tracer.tracer_id,
-            np.asarray(solution_small.ts)[start_idx:],
-            fractional_small[start_idx:],
-            densities[start_idx:],
-            temps[start_idx:],
-            avs[start_idx:],
-            rad_fields[start_idx:],
-            small_assets.species_names,
-            output_dir,
-            label="small",
-        )
-
-        # Seed the large network with the post-spoof abundances for overlapping species
-        post_spoof_abundances = ys_small[start_idx]
-        # Keep large network initialization in fractional units as well
-        large_y0_base = large_assets.template
-        y0_large = map_abundances_between_networks(
-            small_assets.species_names,
-            post_spoof_abundances,
-            large_assets.species_names,
-            large_y0_base,
-        )
-
-        config_large = SimulationConfig(
-            number_density=densities[start_idx:].tolist(),
-            temperature=temps[start_idx:].tolist(),
-            visual_extinction=avs[start_idx:].tolist(),
-            fuv_field=rad_fields[start_idx:].tolist(),
-            cr_rate=(jnp.ones_like(densities[start_idx:]) * 1.6e-17).tolist(),
-            physics_t=physics_t_seconds[start_idx:].tolist(),
-            solver=solver_name,
-            atol=1e-14,
-            rtol=1e-5,
-            max_steps=80000,
-        )
-
-        solution_large = solve_network(large_assets.jnetwork, y0_large, config_large)
-        ys_large = np.asarray(solution_large.ys)
-        fractional_large = compute_fractional_abundances(ys_large, large_assets.network)
-
-        save_tracer_output(
-            tracer.tracer_id,
-            np.asarray(solution_large.ts),
-            fractional_large,
-            densities[start_idx:],
-            temps[start_idx:],
-            avs[start_idx:],
-            rad_fields[start_idx:],
-            large_assets.species_names,
-            output_dir,
-            label="large",
-        )
-
-        return time() - start_time
-    except Exception:
-        print(f"Tracer {tracer.tracer_id} crashed; skipping.")
-        return 0.0
+    return time() - t0
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Batch run Carbox tracers")
-
-    # Benchmark args
-    parser.add_argument("--benchmark", type=str, default="M600_1", help="Benchmark ID")
-    parser.add_argument("--discretization", type=int, default=1, help="Stride")
-    parser.add_argument("--clip", type=int, default=None, help="Max timesteps")
-    parser.add_argument("--timestep", type=float, default=None, help="Timestep kyr")
-    parser.add_argument("--npy-path", type=Path, default=None, help="Source NPY path")
-    parser.add_argument(
-        "--tracer-csv",
-        type=Path,
-        default=None,
-        help="Run a single tracer CSV instead of loading from NPY",
-    )
-
-    # Tracer selection
-    parser.add_argument(
-        "--tracers", type=int, nargs="+", default=[7650], help="Indices"
-    )
-    parser.add_argument("--random-count", type=int, default=None, help="Random count")
-
-    # Execution
-    parser.add_argument(
-        "--output-dir", type=Path, default=Path("outputs"), help="Output dir"
-    )
-    parser.add_argument("--workers", type=int, default=None, help="Parallel workers")
-    parser.add_argument(
-        "--solver",
-        type=str,
-        default="kvaerno5",
-        help="ODE solver: dopri5, kvaerno5, tsit5",
-    )
-
-    return parser.parse_args()
+    """Parse CLI arguments."""
+    p = argparse.ArgumentParser(description="Run a single Carbox tracer (CSV-only)")
+    p.add_argument("--tracer-csv", type=Path, required=True)
+    p.add_argument("--output-dir", type=Path, default=Path("outputs"))
+    return p.parse_args()
 
 
 def main() -> None:
-    """Entrypoint for batch benchmark runs."""
+    """Program entrypoint."""
     args = parse_args()
-    tracers = load_tracers(args)
-
-    if not tracers:
-        print("No tracers found to process.")
-        return
-
-    if args.tracer_csv:
-        print(f"Processing tracer {tracers[0].tracer_id} from CSV...")
-        start_wall_time = time()
-        durations = [process_tracer(tracers[0], args.output_dir, args.solver)]
-    else:
-        workers = args.workers or cpu_count() or 1
-        print(f"Processing {len(tracers)} tracers with {workers} workers...")
-        start_wall_time = time()
-        durations = []
-        parallel_generator = Parallel(n_jobs=workers, return_as="generator")(
-            delayed(process_tracer)(tracer, args.output_dir, args.solver)
-            for tracer in tracers
-        )
-
-        for i, duration in enumerate(parallel_generator, 1):
-            durations.append(duration)
-            print(f"Completed {i}/{len(tracers)} tracers", end="\r", flush=True)
-        print("")  # Newline after progress bar
-
-    end_wall_time = time()
-    wall_time = end_wall_time - start_wall_time
-
-    print(f"Completed {len(tracers)} tracers.")
-
-    total_cpu_time = sum(durations)
-    throughput = len(tracers) / wall_time if wall_time > 0 else 0.0
-
-    print("-" * 40)
-    print(f"Wall Time:       {wall_time:.2f} s")
-    print(f"Throughput:      {throughput:.2f} tracers/s")
-    print(f"Total CPU Time:  {total_cpu_time:.2f} s")
-    print("-" * 40)
-
-    if durations:
-        print(f"Max time: {max(durations):.2f}s")
-        print(f"Average time: {total_cpu_time / len(durations):.2f}s")
+    tracer_id, frame = load_tracer_csv(args.tracer_csv)
+    print(f"Processing tracer {tracer_id} from CSV {args.tracer_csv}...")
+    dt = run_tracer(frame, args.output_dir)
+    print(f"Completed tracer {tracer_id} in {dt:.2f} s")
 
 
 if __name__ == "__main__":
