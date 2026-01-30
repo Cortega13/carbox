@@ -11,12 +11,17 @@ from pathlib import Path
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Generate MPI command lines")
-    parser.add_argument("--csv-dir", type=Path, required=True, help="Tracer CSV dir")
+    parser.add_argument(
+        "--csv-dir",
+        type=Path,
+        default=Path("benchmarks/cosmicai/data/turbulence_tracers_csv"),
+        help="Tracer CSV dir (default: benchmarks/cosmicai/data/turbulence_tracers_csv)",
+    )
     parser.add_argument(
         "--command-file",
         type=Path,
-        required=True,
-        help="Output commandlines file",
+        default=Path("benchmarks/cosmicai/commandlines.txt"),
+        help="Output commandlines file (default: benchmarks/cosmicai/commandlines.txt)",
     )
     parser.add_argument(
         "--benchmark-script",
@@ -27,20 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        required=True,
-        help="Benchmark output directory",
-    )
-    parser.add_argument(
-        "--mpi-launcher",
-        type=str,
-        default="mpirun",
-        help="MPI launcher (mpirun or srun)",
-    )
-    parser.add_argument(
-        "--ranks",
-        type=int,
-        default=1,
-        help="MPI ranks per tracer",
+        default=Path("outputs"),
+        help="Benchmark output directory (default: outputs)",
     )
     parser.add_argument(
         "--skip-existing",
@@ -76,16 +69,18 @@ def tracer_id_from_csv(path: Path) -> int:
 
 
 def build_command(
-    launcher: str,
-    ranks: int,
     benchmark_script: Path,
     tracer_csv: Path,
     output_dir: Path,
 ) -> str:
-    """Build a single MPI command line for a tracer."""
-    mpi_prefix = f"srun -n {ranks}" if launcher == "srun" else f"{launcher} -np {ranks}"
+    """Build a single command line for a tracer.
+
+    Note: We intentionally do NOT include any `srun`/MPI prefix here.
+    The job-level launcher (e.g., Slurm + pylauncher) is responsible for
+    placement; each tracer run is always single-rank.
+    """
     return (
-        f"{mpi_prefix} python3 {benchmark_script} "
+        f"python3 {benchmark_script} "
         f"--tracer-csv {tracer_csv} --output-dir {output_dir}"
     )
 
@@ -93,6 +88,7 @@ def build_command(
 def main() -> None:
     """CLI entrypoint."""
     args = parse_args()
+
     args.csv_dir = resolve_path(args.csv_dir)
     args.command_file = resolve_path(args.command_file)
     args.output_dir = resolve_path(args.output_dir)
@@ -111,8 +107,6 @@ def main() -> None:
                 continue
         lines.append(
             build_command(
-                args.mpi_launcher,
-                args.ranks,
                 args.benchmark_script,
                 csv_path,
                 args.output_dir,

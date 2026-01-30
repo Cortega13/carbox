@@ -15,12 +15,8 @@ Example for the default M600 dataset:
 python benchmarks/cosmicai/npy_to_csv.py \
   --npy-path benchmarks/cosmicai/data/M600_seed1_trace_cells.npy \
   --output-dir benchmarks/cosmicai/data/turbulence_tracers_csv \
-  --timestep-kyr 8.299 \
-  --clip 400 \
-  --discretization 1 \
   --skip-existing \
-  --random-count 40 \
-  --seed 123
+  --random-count 40
 ```
 
 Notes:
@@ -30,19 +26,15 @@ Notes:
 ## 2) Generate MPI commandlines
 
 ```bash
-python benchmarks/cosmicai/generate_commandlines.py \
-  --csv-dir benchmarks/cosmicai/data/turbulence_tracers_csv \
-  --command-file benchmarks/cosmicai/commandlines.txt \
-  --output-dir outputs/cosmicai \
-  --mpi-launcher srun \
-  --ranks 1 \
-  --skip-existing
+python benchmarks/cosmicai/npy_to_csv.py \
+  --skip-existing \
+  --random-count 40
 ```
 
 This creates one line per tracer CSV, e.g.:
 
 ```bash
-srun -n 1 python benchmarks/cosmicai/carbox_cosmicai_benchmark.py --tracer-csv ... --output-dir outputs/cosmicai
+python3 benchmarks/cosmicai/carbox_cosmicai_benchmark.py --tracer-csv ... --output-dir outputs
 ```
 
 ## 3) Run with Slurm + pylauncher
@@ -62,5 +54,5 @@ Adjust `benchmarks/cosmicai/run_pylauncher.slurm` if your environment differs.
 ```bash
 python benchmarks/cosmicai/carbox_cosmicai_benchmark.py \
   --tracer-csv benchmarks/cosmicai/data/turbulence_tracers_csv/tracer_10.csv \
-  --output-dir outputs/cosmicai
+  --output-dir outputs
 ```

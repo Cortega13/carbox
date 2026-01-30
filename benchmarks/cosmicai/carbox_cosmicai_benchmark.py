@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from time import time
 
@@ -259,8 +260,44 @@ def main() -> None:
     args = parse_args()
     tracer_id, frame = load_tracer_csv(args.tracer_csv)
     print(f"Processing tracer {tracer_id} from CSV {args.tracer_csv}...")
+
+    # Ensure output directory exists for both binary outputs and runtime metadata.
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    started_utc = datetime.now(timezone.utc)
     dt = run_tracer(frame, args.output_dir)
+    finished_utc = datetime.now(timezone.utc)
     print(f"Completed tracer {tracer_id} in {dt:.2f} s")
+
+    # Append a single timing row to a shared file (one file total across runs).
+    timing_path = args.output_dir / "benchmark_timing.tsv"
+    is_new = not timing_path.exists()
+    with timing_path.open("a", encoding="utf-8") as handle:
+        if is_new:
+            handle.write(
+                "\t".join(
+                    [
+                        "started_utc",
+                        "finished_utc",
+                        "elapsed_seconds",
+                        "tracer_id",
+                        "tracer_csv",
+                    ]
+                )
+                + "\n"
+            )
+        handle.write(
+            "\t".join(
+                [
+                    started_utc.isoformat(),
+                    finished_utc.isoformat(),
+                    f"{dt:.6f}",
+                    str(tracer_id),
+                    str(args.tracer_csv),
+                ]
+            )
+            + "\n"
+        )
 
 
 if __name__ == "__main__":
