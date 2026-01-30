@@ -10,6 +10,7 @@ plugins
 pyproject.toml
 
 .venv/
+venv/
 benchmarks/cosmicai/data/
 outputs/
 notebooks/analysis/plots/

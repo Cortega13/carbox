@@ -25,10 +25,23 @@ Notes:
 
 ## 2) Generate MPI commandlines
 
+For local
 ```bash
-python benchmarks/cosmicai/npy_to_csv.py \
-  --skip-existing \
-  --random-count 40
+python benchmarks/cosmicai/generate_commandlines.py \
+  --csv-dir benchmarks/cosmicai/data/turbulence_tracers_csv \
+  --command-file benchmarks/cosmicai/commandlines.txt \
+  --output-dir outputs \
+  --skip-existing
+```
+
+For vista
+```bash
+python3 /work/09338/carlos9/vista/carbox/benchmarks/cosmicai/generate_commandlines.py \
+  --csv-dir /work/09338/carlos9/vista/carbox/benchmarks/cosmicai/data/turbulence_tracers_csv \
+  --benchmark-script /work/09338/carlos9/vista/carbox/benchmarks/cosmicai/carbox_cosmicai_benchmark.py \
+  --command-file /work/09338/carlos9/vista/carbox/benchmarks/cosmicai/commandlines.txt \
+  --output-dir /work/09338/carlos9/vista/carbox/outputs \
+  --skip-existing
 ```
 
 This creates one line per tracer CSV, e.g.:
