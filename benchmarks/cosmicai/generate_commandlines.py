@@ -102,8 +102,9 @@ def main() -> None:
     for csv_path in csv_paths:
         tracer_id = tracer_id_from_csv(csv_path)
         if args.skip_existing:
-            output_path = args.output_dir / f"tracer_{tracer_id}.npy"
-            if output_path.exists():
+            output_path1 = args.output_dir / f"tracer_{tracer_id}_large.npy"
+            output_path2 = args.output_dir / f"tracer_{tracer_id}_small.npy"
+            if output_path1.exists() and output_path2.exists():
                 continue
         lines.append(
             build_command(
