@@ -24,7 +24,7 @@ import pandas as pd
 NPY_PATH = Path("benchmarks/cosmicai/data/M600_seed1_trace_cells.npy")
 OUTPUT_DIR = Path("benchmarks/cosmicai/data/turbulence_tracers_csv")
 TIMESTEP_KYR = 8.299
-CLIP = 400
+CLIP = 1600
 DISCRETIZATION = 1
 SEED = 13
 

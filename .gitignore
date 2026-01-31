@@ -17,3 +17,4 @@ notebooks/analysis/plots/
 docs/*.md
 
 scripts/analysis/plots/*
+*commandlines.txt

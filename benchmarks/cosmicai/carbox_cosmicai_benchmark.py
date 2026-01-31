@@ -255,6 +255,13 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def tracer_outputs_exist(tracer_id: int, output_dir: Path) -> bool:
+    """Return True if both small+large outputs for tracer_id already exist."""
+    small_path = output_dir / f"tracer_{tracer_id}_small.npy"
+    large_path = output_dir / f"tracer_{tracer_id}_large.npy"
+    return small_path.exists() and large_path.exists()
+
+
 def main() -> None:
     """Program entrypoint."""
     args = parse_args()
@@ -263,6 +270,16 @@ def main() -> None:
 
     # Ensure output directory exists for both binary outputs and runtime metadata.
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Fast path: skip if this tracer was already processed.
+    if tracer_outputs_exist(tracer_id, args.output_dir):
+        print(
+            "Outputs already exist; skipping: "
+            + str(args.output_dir / f"tracer_{tracer_id}_small.npy")
+            + " and "
+            + str(args.output_dir / f"tracer_{tracer_id}_large.npy")
+        )
+        return
 
     started_utc = datetime.now(timezone.utc)
     dt = run_tracer(frame, args.output_dir)
