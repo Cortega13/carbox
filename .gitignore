@@ -15,6 +15,7 @@ benchmarks/cosmicai/data/
 outputs/
 notebooks/analysis/plots/
 docs/*.md
+data/*
 
 scripts/analysis/plots/*
 *commandlines.txt

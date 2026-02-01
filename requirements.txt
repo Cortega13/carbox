@@ -17,5 +17,8 @@ matplotlib>=3.7.0
 tqdm>=4.65.0
 pyyaml>=6.0
 
+# I/O (used by scripts/processing/compress_tracer_outputs_to_h5.py)
+h5py>=3.10.0
+
 scienceplots>=2.2.0
 networkx>=3.6.1
