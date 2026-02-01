@@ -55,3 +55,15 @@ The Slurm script expects:
 - commandlines at `benchmarks/cosmicai/commandlines.txt`
 
 Adjust `benchmarks/cosmicai/run_pylauncher.slurm` if your environment differs.
+
+
+
+module load gcc/15.1.0 cuda/12.8
+module load python3/3.11.8
+module load pylauncher
+
+source "/work/09338/carlos9/vista/carbox/venv/bin/activate"
+export PYTHONPATH="/work/09338/carlos9/vista/carbox:${PYTHONPATH}"
+
+python3 "/work/09338/carlos9/vista/carbox/benchmarks/cosmicai/mylauncher.py" \
+  --command-file "/work/09338/carlos9/vista/carbox/benchmarks/cosmicai/commandlines.txt"

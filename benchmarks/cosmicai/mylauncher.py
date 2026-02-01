@@ -8,7 +8,9 @@ import pylauncher
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Launch MPI commandlines with pylauncher")
+    parser = argparse.ArgumentParser(
+        description="Launch MPI commandlines with pylauncher"
+    )
     parser.add_argument(
         "--command-file",
         type=Path,
@@ -27,7 +29,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """CLI entrypoint."""
     args = parse_args()
-    pylauncher.ClassicLauncher(str(args.command_file), debug=args.debug)
+    pylauncher.ClassicLauncher(str(args.command_file), debug=args.debug, delay=3.0)
 
 
 if __name__ == "__main__":
