@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -p gg
-#SBATCH -t 01:00:00
+#SBATCH -t 06:00:00
 #SBATCH -A AST24021
 #SBATCH -J carbox_cosmicai_benchmark
 #SBATCH -o job.o%j
