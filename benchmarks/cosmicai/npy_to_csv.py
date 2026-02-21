@@ -39,7 +39,6 @@ def density_to_number_density(density: np.ndarray) -> np.ndarray:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Convert CosmicAI NPY to tracer CSVs")
-    parser.add_argument("--benchmark", type=str, default="M600_1", help="Benchmark ID")
     parser.add_argument(
         "--tracers",
         type=int,
@@ -93,7 +92,6 @@ def build_frame(
     )
     frame["time"] = np.arange(len(frame)) * TIMESTEP_KYR * DISCRETIZATION
     frame["tracer"] = tracer_index
-    frame["benchmark"] = args.benchmark
     frame["density"] = density_to_number_density(frame["density"].to_numpy())
     return frame[["tracer", "time", "gasTemp", "density", "av", "radField"]]
 

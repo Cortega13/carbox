@@ -1,4 +1,10 @@
-"""Compress tracer `.npy` outputs into a single HDF5 with `/small` and `/large` groups."""
+"""Compress tracer `.npy` outputs into a single HDF5 with `/small` and `/large` groups.
+
+Output schema (per group):
+- `columns`: 1D string dataset describing the 2D `data` table.
+- `data`: 2D float32 table with an extra leading `tracer_id` column.
+- `tracer_ptr`: (optional convenience) 2D int64 table of (tracer_id, start_row, n_rows).
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import h5py
 import numpy as np
@@ -117,20 +124,26 @@ def _append_rows(
     tracer_id: int,
     tracer_ptr_rows: list[tuple[int, int, int]],
 ) -> None:
-    """Append a tracer block to `data` and `tracer_id` datasets and record pointer."""
-    dset = grp["data"]
-    tid = grp["tracer_id"]
+    """Append a tracer block to the 2D `data` table and record pointer.
+
+    The output `data` table includes a leading `tracer_id` column, so rows can be
+    separated/grouped by tracer without consulting a separate dataset.
+    """
+    dset = cast(h5py.Dataset, grp["data"])
 
     start = int(dset.shape[0])
     n = int(data_block.shape[0])
     if n == 0:
         return
 
-    dset.resize((start + n, dset.shape[1]))
-    tid.resize((start + n,))
+    # Prepend tracer_id as the first column.
+    tracer_col = np.full((n, 1), float(tracer_id), dtype=np.float32)
+    out_block = np.concatenate(
+        (tracer_col, data_block.astype(np.float32, copy=False)), axis=1
+    )
 
-    dset[start : start + n] = data_block
-    tid[start : start + n] = np.full((n,), tracer_id, dtype=np.int64)
+    dset.resize((start + n, dset.shape[1]))
+    dset[start : start + n] = out_block
 
     tracer_ptr_rows.append((int(tracer_id), start, n))
 
@@ -146,9 +159,12 @@ def _init_group(
     grp = h5.create_group(group_name)
 
     str_dt = h5py.string_dtype(encoding="utf-8")
-    grp.create_dataset("columns", data=np.asarray(columns, dtype=object), dtype=str_dt)
+    out_columns = ["tracer_id", *columns]
+    grp.create_dataset(
+        "columns", data=np.asarray(out_columns, dtype=object), dtype=str_dt
+    )
 
-    n_cols = len(columns)
+    n_cols = len(out_columns)
     chunk_rows = _choose_chunk_rows(n_cols)
 
     compression = "gzip"
@@ -160,16 +176,6 @@ def _init_group(
         maxshape=(None, n_cols),
         dtype=np.float32,
         chunks=(chunk_rows, n_cols),
-        compression=compression,
-        compression_opts=int(compression_level),
-        shuffle=True,
-    )
-    grp.create_dataset(
-        "tracer_id",
-        shape=(0,),
-        maxshape=(None,),
-        dtype=np.int64,
-        chunks=(max(1024, chunk_rows),),
         compression=compression,
         compression_opts=int(compression_level),
         shuffle=True,
@@ -210,7 +216,7 @@ def compress_tracers_to_h5(
     with h5py.File(output_path, "w") as h5:
         h5.attrs["created_utc"] = created_utc
         h5.attrs["source_dir"] = str(input_dir)
-        h5.attrs["schema"] = "stacked_rows_with_tracer_ptr"
+        h5.attrs["schema"] = "stacked_rows_with_tracer_id_column_and_tracer_ptr"
 
         grp_small = _init_group(h5, "small", small_cols)
         grp_large = _init_group(h5, "large", large_cols)
