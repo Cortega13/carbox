@@ -1,18 +1,23 @@
-"""Compress tracer `.npy` payloads into one float32 `(M, R, C)` `.npy`.
+"""Compress tracer `.npy` payloads into float32 `.npy` tables.
 
 Inputs: `tracer_<id>_<model>.npy` (default models: `small large`). Each input file
 contains a dict with `columns` and 2D `data`.
 
 Outputs:
-- `output_path`: a single float32 array shaped `(n_models, n_rows, n_cols)` where
-  each model is a stacked-row table across all tracers, and the first column is
-  a `tracer_id` column.
-- `columns_json`: a JSON mapping of column-index -> column-name for axis2.
+- (default) one file per model:
+  - `<output_path stem>_<model>.npy`: a float32 array shaped `(n_rows, n_cols)` where
+    the model is a stacked-row table across all tracers, and the first column is a
+    `tracer_id` column.
+  - `<columns_json stem>_<model>.columns.json`: a JSON mapping of column-index ->
+    column-name for axis1.
+- (optional) `--stack-models`: preserve the old behavior and write:
+  - `output_path`: a single float32 array shaped `(n_models, n_rows, n_cols)`.
+  - `columns_json`: a JSON mapping of column-index -> column-name for axis2.
 
 This assumes identical `columns` *within each model* across all tracers.
 
 If models have different columns (e.g. `small` has fewer species than `large`), we
-output the union of all columns and fill missing values with NaN.
+`--stack-models` will output the union of all columns and fill missing values with NaN.
 """
 
 from __future__ import annotations
@@ -42,10 +47,35 @@ def _matched_tracer_ids(input_dir: Path, models: list[str]) -> list[int]:
     return sorted(ids or set())
 
 
+def _with_model_suffix(path: Path, model: str) -> Path:
+    """Return `path` with `_{model}` inserted before the final suffix."""
+    if path.suffix:
+        return path.with_name(f"{path.stem}_{model}{path.suffix}")
+    return path.with_name(f"{path.name}_{model}")
+
+
+def _with_model_suffix_columns_json(path: Path, model: str) -> Path:
+    """Return columns-json path with `_{model}` inserted before `.columns.json`.
+
+    If the filename does not end with `.columns.json`, we fall back to inserting
+    before the final suffix.
+    """
+    name = path.name
+    if name.endswith(".columns.json"):
+        base = name[: -len(".columns.json")]
+        return path.with_name(f"{base}_{model}.columns.json")
+    return _with_model_suffix(path, model)
+
+
 def compress_tracers_to_npy(
-    input_dir: Path, output_path: Path, columns_json: Path, models: list[str]
+    input_dir: Path,
+    output_path: Path,
+    columns_json: Path,
+    models: list[str],
+    *,
+    stack_models: bool,
 ) -> None:
-    """Write `output_path` array and `columns_json` mapping."""
+    """Write compressed `.npy` output(s) and corresponding columns mapping(s)."""
     input_dir, output_path = Path(input_dir), Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -63,6 +93,40 @@ def compress_tracers_to_npy(
             payload["data"], np.float32
         )
 
+    if not stack_models:
+        # Write one 2D table per model.
+        for model in models:
+            model_out = _with_model_suffix(output_path, model)
+            model_cols_json = _with_model_suffix_columns_json(columns_json, model)
+
+            model_cols = load(tracer_ids[0], model)[0]
+
+            blocks: list[np.ndarray] = []
+            for tracer_id in tqdm(tracer_ids, desc=f"model={model}"):
+                cols, data = load(tracer_id, model)
+                if cols != model_cols:
+                    raise ValueError(
+                        f"Column mismatch within model={model} (tracer_id={tracer_id})"
+                    )
+                block = np.empty((data.shape[0], 1 + len(model_cols)), np.float32)
+                block[:, 0] = tracer_id
+                block[:, 1:] = data
+                blocks.append(block)
+
+            table = np.concatenate(blocks, axis=0)
+            np.save(model_out, table)
+
+            model_cols_json.parent.mkdir(parents=True, exist_ok=True)
+            model_columns = ["tracer_id", *model_cols]
+            model_cols_json.write_text(
+                json.dumps({str(i): c for i, c in enumerate(model_columns)}, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+
+        return
+
+    # Old behavior: stack models along axis 0, aligning columns by union across models.
     model_cols = {m: load(tracer_ids[0], m)[0] for m in models}
     union: list[str] = []
     for m in models:
@@ -102,7 +166,10 @@ def compress_tracers_to_npy(
 def parse_args() -> argparse.Namespace:
     """Parse CLI args."""
     p = argparse.ArgumentParser(
-        description="Compress tracer_*_<model>.npy outputs into one stacked 3D .npy."
+        description=(
+            "Compress tracer_*_<model>.npy outputs into compressed .npy tables "
+            "(default: one file per model; optional: stack models into one 3D array)."
+        )
     )
     p.add_argument(
         "--input-dir",
@@ -114,13 +181,29 @@ def parse_args() -> argparse.Namespace:
         "--output-path",
         type=Path,
         default=Path("data/tracers.npy"),
-        help="Output .npy file path (float32 array with shape MxRxC)",
+        help=(
+            "Output base .npy path. Default mode writes one file per model: "
+            "<stem>_<model>.npy. With --stack-models, writes exactly this path as a 3D array."
+        ),
     )
     p.add_argument(
         "--columns-json",
         type=Path,
         default=None,
-        help="Output JSON mapping column-index -> column-name (default: <output-path>.columns.json)",
+        help=(
+            "Output base JSON mapping column-index -> column-name. "
+            "Default mode writes one file per model: <base>_<model>.columns.json. "
+            "With --stack-models, writes exactly this path. "
+            "(default: <output-path>.columns.json)"
+        ),
+    )
+    p.add_argument(
+        "--stack-models",
+        action="store_true",
+        help=(
+            "Write one stacked 3D array (n_models, n_rows, n_cols) instead of one file per model. "
+            "This aligns columns by the union across models and fills missing values with NaN."
+        ),
     )
     p.add_argument(
         "--models",
@@ -140,7 +223,11 @@ def main() -> None:
         else Path(args.output_path).with_suffix(".columns.json")
     )
     compress_tracers_to_npy(
-        args.input_dir, args.output_path, columns_json, list(args.models)
+        args.input_dir,
+        args.output_path,
+        columns_json,
+        list(args.models),
+        stack_models=bool(args.stack_models),
     )
 
 
